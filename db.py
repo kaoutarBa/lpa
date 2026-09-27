@@ -82,3 +82,12 @@ def log_event(session_id, step, type, detail=""):
             "INSERT INTO events (session_id, ts, step, type, detail) VALUES (?, ?, ?, ?, ?)",
             (session_id, now(), step, type, detail),
         )
+
+
+def count_events(session_id, types):
+    marks = ", ".join("?" for _ in types)
+    with connect() as conn:
+        return conn.execute(
+            f"SELECT COUNT(*) FROM events WHERE session_id = ? AND type IN ({marks})",
+            (session_id, *types),
+        ).fetchone()[0]
