@@ -4,6 +4,7 @@ import time
 
 import streamlit as st
 
+import coach
 import db
 from content import T, UI, WALLET, highlight_css, inject_css, reassure
 
@@ -36,6 +37,7 @@ DEFAULTS = {
     "alone_started": None,
     "alone_secs": None,
     "alone_slips": 0,        # errors + help + lost in the current alone run
+    "last_source": "",       # provider + latency of Salma's last line (shown for the demo)
 }
 for key, value in DEFAULTS.items():
     ss.setdefault(key, value.copy() if isinstance(value, (list, dict)) else value)
@@ -58,6 +60,7 @@ def speak(say, highlight=None, provider="fixed", latency_ms=0, input_type="fixed
     ss.subs.append(("salma", say))
     ss.history.append({"role": "assistant", "content": say})
     ss.highlight = highlight
+    ss.last_source = provider if provider in ("fixed", "cache") else f"{provider} · {latency_ms} ms"
     db.log_turn(sid, ss.mode, ss.step, "coach", say, input_type, provider, latency_ms, highlight)
 
 
@@ -80,9 +83,32 @@ def go(step):
     st.rerun()
 
 
-def answer(event):
-    """Salma answers a question or reacts to an event. Replaced by the AI coach in milestone 3."""
-    speak(**T["cache"][ss.step])
+def answer(message, is_question=False):
+    """Salma answers a question or reacts to an event, via the AI coach (with fallbacks)."""
+    screen, extra = ss.step, ""
+    if ss.mode == "learn":
+        lesson = T["lessons"][ss.lesson]
+        screen, extra = "lesson", f"Leçon affichée : « {lesson['title']} » — {lesson['say']}"
+    thinking.markdown(f'<p class="thinking">⏳ {UI["thinking"]}</p>', unsafe_allow_html=True)
+    res = coach.ask(
+        message, screen, ss.mode, ss.history, ss.last_action,
+        ss.errors.get((ss.mode, ss.step), 0), extra, is_question,
+    )
+    if is_question:
+        ss.history.append({"role": "user", "content": message})
+    speak(res["say"], res["highlight"], res["provider"], res["latency_ms"], input_type="ai")
+
+
+def handle_question(text, input_type):
+    """The user talked (voice) or typed a question."""
+    ss.subs.append(("you", text))
+    db.log_turn(sid, ss.mode, ss.step, "user", text, input_type)
+    if ss.mode == "alone":
+        log("help_request", input_type)
+    ss.last_action = "a posé une question"
+    answer(text, is_question=True)
+    slip_in_alone()
+    st.rerun()
 
 
 def slip_in_alone():
@@ -103,7 +129,7 @@ def mistake(kind, typed):
         if ss.errors[key] == 1:
             speak(**T["mistakes"][kind])
         else:
-            answer(f"L'utilisateur s'est encore trompé ({ss.errors[key]} erreurs sur cet écran).")
+            answer(f"La personne s'est encore trompée ({ss.errors[key]} erreurs sur cet écran).")
     slip_in_alone()
     st.rerun()
 
@@ -172,6 +198,9 @@ st.markdown(
     f'<div class="callpanel"><div class="avatar">👩🏽</div><div class="subs">{captions}</div></div>',
     unsafe_allow_html=True,
 )
+if ss.last_source:
+    st.caption(f"🔌 {ss.last_source}")
+thinking = st.empty()  # "Salma réfléchit…" while the AI answers
 highlight_css(ss.highlight)
 
 reassure(UI["reassure"])
@@ -318,19 +347,26 @@ if ss.mode == "alone" and ss.repeat_offered and not ss.repeat_declined:
         ss.repeat_declined = True
         st.rerun()
 
-# ---------- I'm lost / help / back ----------
+# ---------- talk to Salma ----------
 st.divider()
+with st.form("ask_form", clear_on_submit=True):
+    question = st.text_input(UI["text_label"], key="input_question")
+    sent = st.form_submit_button(UI["send"])
+if sent and question.strip():
+    handle_question(question.strip()[:300], "text")
+
+# ---------- I'm lost / help / back ----------
 if st.button(UI["lost"], key="btn_lost"):
     log("lost")
     ss.last_action = "a appuyé sur « Je suis perdu(e) »"
-    answer("L'utilisateur est perdu sur cet écran.")
+    answer("La personne dit qu'elle est perdue sur cet écran.")
     slip_in_alone()
     st.rerun()
 
 if ss.mode == "alone" and st.button(UI["help"], key="btn_help"):
     log("help_request")
     ss.last_action = "a appuyé sur « Aide »"
-    answer("L'utilisateur demande de l'aide sur cet écran.")
+    answer("La personne demande de l'aide sur cet écran.")
     slip_in_alone()
     st.rerun()
 
