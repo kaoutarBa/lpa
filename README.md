@@ -16,6 +16,7 @@ Works without any key: Salma falls back to pre-written answers, text only if spe
 - `app.py` consent · `pages/1_Practice.py` the call + wallet replica · `pages/2_Dashboard.py` metrics and recommendations
 - `coach.py` LLM calls + fallback chain · `voice.py` gTTS + Whisper · `analysis.py` AI analysis
 - `content.py` all texts (keyed by language) · `db.py` SQLite (`lpa.db`, created on start)
+- `check_ai.py` live check of your keys: `python check_ai.py` (one coach call + one analysis call)
 
 ## Deploy (Streamlit Community Cloud)
 1. share.streamlit.io → **Create app** → repo `kaoutarBa/lpa`, branch, main file `app.py`.

@@ -9,14 +9,14 @@ How the AI part works:
   transcripts). The prompt says "no number, no recommendation", and we also enforce it in code:
   an item whose evidence cites no number present in the data is dropped. With fewer than 10 sessions
   the confidence is forced to "low".
-- Same provider chain as the coach (coach.chat). If no provider is configured we fall back to simple
+- Uses NVIDIA Build first with BUILD_ANALYSIS_MODEL (falls back to BUILD_MODEL), then COACH_ORDER. If no provider is configured we fall back to simple
   rules, so the dashboard still shows something honest (and says the source).
 """
 import json
 import re
 
 import db
-from coach import chat, parse_json
+from coach import chat, clean_values, parse_json
 
 THEMES = ["otp_meaning", "fear_losing_money", "where_reference", "code_sharing", "fees", "navigation", "other"]
 STEP_NAMES = {"home": "accueil", "biller": "choix du facturier", "reference": "référence",
@@ -112,17 +112,19 @@ def analyze_session(session_id):
         prompt = SESSION_PROMPT.format(
             themes=", ".join(THEMES), metrics=json.dumps(metrics, ensure_ascii=False), transcript=transcript
         )
-        text, provider, _ = chat([{"role": "user", "content": prompt}], max_tokens=500, temperature=0.1, timeout=20)
+        text, provider, latency = chat([{"role": "user", "content": prompt}], max_tokens=1500,
+                                       temperature=0.1, timeout=30, purpose="analysis")
         if text is None:
             result = _rules_session(metrics)
         else:
             try:
-                result = parse_json(text)
+                result = clean_values(parse_json(text))
                 if not isinstance(result, dict):
                     raise ValueError("not a JSON object")
                 result["question_themes"] = [t for t in result.get("question_themes", []) if t in THEMES]
                 result["completed_alone"] = metrics["completed_alone"]  # the truth comes from our data
                 result["source"] = provider
+                result["latency_ms"] = latency
             except Exception as e:
                 result = {"error": f"unparseable answer from {provider}: {e}"}
     except Exception as e:
@@ -180,11 +182,12 @@ def cross_session_insights(data, quotes):
     n = data["n_sessions"]
     data_text = json.dumps(data, ensure_ascii=False)
     prompt = INSIGHTS_PROMPT.format(data=data_text, quotes="\n".join(f"- « {q} »" for q in quotes[:8]) or "(aucune)")
-    text, provider, _ = chat([{"role": "user", "content": prompt}], max_tokens=1200, temperature=0.2, timeout=25)
+    text, provider, _ = chat([{"role": "user", "content": prompt}], max_tokens=2500, temperature=0.2,
+                             timeout=40, purpose="analysis")
     if text is None:
         return _rules_insights(data), "rules"
     try:
-        items = parse_json(text)
+        items = clean_values(parse_json(text))
         items = items if isinstance(items, list) else items.get("items", [])
     except Exception:
         return _rules_insights(data), "rules"
