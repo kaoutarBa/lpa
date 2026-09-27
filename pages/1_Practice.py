@@ -1,5 +1,10 @@
-"""Practice: a call with Salma (learn → coached → alone → done) on a replica of a mobile wallet."""
-import html
+"""The whole user journey, inside one call with Salma:
+consent → optional profile → assisted practice (a concept is explained, then applied in the app)
+→ try alone (Salma stays on the line and watches) → done.
+
+The page only shows the fictional payment app. Salma is heard, not read: no transcript on screen.
+The user talks (continuous listening in the call bar) or types in the "Écrire à Salma" box at the bottom.
+"""
 import random
 import re
 import threading
@@ -11,26 +16,23 @@ import analysis
 import coach
 import db
 import voice
+from content import T, UI, WALLET, highlight_css, inject_css
 from ear import result_value, salma_ear
-from content import T, UI, WALLET, highlight_css, inject_css, reassure
 
 inject_css()
 voice.warm_up()  # background pre-generation of Salma's fixed lines (first run only)
 
 ss = st.session_state
-if "session_id" not in ss:
-    st.title(UI["app_title"])
-    st.markdown(UI["no_session"])
-    if st.button(UI["go_home"], type="primary"):
-        st.switch_page("home.py")
-    st.stop()
-
 DEFAULTS = {
-    "call": "idle",          # idle | active | ended
-    "mode": None,            # learn | coached | alone | done
-    "step": "lesson",        # lesson | home | biller | reference | confirm | otp | receipt | done
-    "lesson": 0,
-    "subs": [],              # captions: [(speaker, text)]
+    "session_id": None,      # created only after consent
+    "call": "idle",          # idle | active | ended | declined
+    "mode": None,            # learn (consent + profile) | coached (assisted) | alone | done
+    "step": None,            # consent | profile | concept | home | biller | reference | confirm | otp | receipt | done
+    "concept": None,         # concept being explained
+    "next_step": None,       # wallet screen where the concept is applied
+    "concepts_done": [],
+    "name": "",              # first name: used by Salma during the call, never stored
+    "subs": [],              # conversation (only used for the AI context, never displayed)
     "history": [],           # chat history sent to the LLM
     "highlight": None,       # element id Salma points at
     "error": None,           # error message key to show
@@ -42,18 +44,23 @@ DEFAULTS = {
     "alone_started": None,
     "alone_secs": None,
     "alone_slips": 0,        # errors + help + lost in the current alone run
-    "last_source": "",       # provider + latency of Salma's last line (shown for the demo)
+    "alone_nudges": 0,       # idle nudges in the current alone run
     "to_say": [],            # lines to play on the next render: [(text, is_fixed)]
-    "mic_n": 0,              # bumps the mic widget key so each recording is used once
     "analyzed": False,
     "nudged": [],            # screens where Salma already relaunched after 20 s of silence
     "ear_ack": 0,            # bumped each time Python handles something the ear sent
-    "alone_nudges": 0,       # idle nudges in the current alone run
 }
 for key, value in DEFAULTS.items():
     ss.setdefault(key, value.copy() if isinstance(value, (list, dict)) else value)
 
-sid = ss.session_id
+WALLET_STEPS = ["home", "biller", "reference", "confirm", "otp", "receipt"]
+CONCEPT_BEFORE = {c["before"]: name for name, c in T["concepts"].items()}
+SLIPS = ["error_reference", "error_otp", "help_request", "lost"]
+LOST_WORDS = re.compile(r"\b(perdue?|comprends pas|aide[rz]?)\b", re.IGNORECASE)
+YES_WORDS = re.compile(r"\b(oui|ouais|d'accord|ok|okay|j'accepte|compris|on essaie|allons-y|vas-y|c'est bon|c'est clair)\b",
+                       re.IGNORECASE)
+NO_WORDS = re.compile(r"\b(non|pas d'accord|je refuse)\b", re.IGNORECASE)
+
 # Fixed call bar on top of the content (never scrolls away); content is pushed down below it.
 CALLBAR_CSS = """<style>
 .st-key-callbar { position: fixed; top: 0; left: 0; right: 0; z-index: 1000001; background: #0b1f44;
@@ -67,55 +74,82 @@ CALLBAR_CSS = """<style>
   word-break: keep-all; overflow-wrap: normal; hyphens: none; }
 header[data-testid="stHeader"] { background: transparent; }
 [data-testid="stToolbar"] { display: none; }
-.block-container { padding-top: 112px !important; }
+.block-container { padding-top: 104px !important; }
 </style>"""
-WALLET_STEPS = ["home", "biller", "reference", "confirm", "otp", "receipt"]
-SLIPS = ["error_reference", "error_otp", "help_request", "lost"]
-LOST_WORDS = re.compile(r"\b(perdue?|comprends pas|aide[rz]?)\b", re.IGNORECASE)
 
 
 # ---------- helpers ----------
 def log(type, detail=""):
-    db.log_event(sid, ss.mode, ss.step, type, detail)
+    if ss.session_id:  # nothing is recorded before consent
+        db.log_event(ss.session_id, ss.mode, ss.step, type, detail)
     if ss.mode == "alone" and type in SLIPS:
         ss.alone_slips += 1
 
 
 def speak(say, highlight=None, provider="fixed", latency_ms=0, input_type="fixed"):
-    """Salma says something: caption, highlight, turn log."""
+    """Salma says something: queued for audio, highlight, turn log."""
     ss.subs.append(("salma", say))
-    ss.to_say.append((say, provider == "fixed" or provider == "cache"))
+    ss.to_say.append((say, provider in ("fixed", "cache")))
     ss.history.append({"role": "assistant", "content": say})
     ss.highlight = highlight
-    ss.last_source = provider if provider in ("fixed", "cache") else f"{provider} · {latency_ms} ms"
-    db.log_turn(sid, ss.mode, ss.step, "coach", say, input_type, provider, latency_ms, highlight)
+    if ss.session_id:
+        db.log_turn(ss.session_id, ss.mode, ss.step, "coach", say, input_type, provider, latency_ms, highlight)
 
 
 def set_mode(mode):
     ss.mode = mode
+    if not ss.session_id:
+        return
     with db.connect() as conn:
-        reached = conn.execute("SELECT mode_reached FROM sessions WHERE id = ?", (sid,)).fetchone()[0]
+        reached = conn.execute("SELECT mode_reached FROM sessions WHERE id = ?", (ss.session_id,)).fetchone()[0]
     if reached not in db.MODES or db.MODES.index(mode) > db.MODES.index(reached):
-        db.update_session(sid, mode_reached=mode)
+        db.update_session(ss.session_id, mode_reached=mode)
 
 
-def go(step):
+def reset_screen(step):
     ss.step = step
     ss.error = None
     ss.highlight = None
     ss.last_action = ""
+
+
+def go(step):
+    """Next wallet screen. In assisted mode, the concept it needs is explained first."""
+    concept = CONCEPT_BEFORE.get(step)
+    if ss.mode == "coached" and concept and concept not in ss.concepts_done:
+        ss.concepts_done.append(concept)
+        reset_screen("concept")
+        ss.concept, ss.next_step = concept, step
+        log("step_enter", concept)
+        speak(T["concepts"][concept]["say"], "btn_understood")
+        st.rerun()
+    reset_screen(step)
     log("step_enter")
     if ss.mode == "coached":
         speak(**T["steps"][step])
     st.rerun()
 
 
+def screen_key():
+    return f"{ss.call_started}:{ss.mode}:{ss.step}:{ss.concept}"
+
+
+def think():
+    """Never silent: play a short pre-generated filler (hidden player) while the AI works."""
+    filler = voice.tts(random.choice(T["fillers"]), cache=True)
+    if filler:
+        with thinking.container():
+            st.audio(filler, format="audio/mp3", autoplay=True)
+
+
 def answer(message, is_question=False):
     """Salma answers a question or reacts to an event, via the AI coach (with fallbacks)."""
     screen, extra = ss.step, ""
-    if ss.mode == "learn":
-        lesson = T["lessons"][ss.lesson]
-        screen, extra = "lesson", f"Leçon affichée : « {lesson['title']} » — {lesson['say']}"
+    if ss.step == "concept":
+        c = T["concepts"][ss.concept]
+        extra = f"Concept affiché : « {c['title']} » — {c['text']}"
+    if ss.name:
+        extra += f" La personne s'appelle {ss.name}."
     think()
     res = coach.ask(
         message, screen, ss.mode, ss.history, ss.last_action,
@@ -126,32 +160,39 @@ def answer(message, is_question=False):
     speak(res["say"], res["highlight"], res["provider"], res["latency_ms"], input_type="ai")
 
 
-def think():
-    """Never silent: show "Salma réfléchit…" and play a short pre-generated filler while the AI works."""
-    with thinking.container():
-        st.markdown(f'<p class="thinking">⏳ {UI["thinking"]}</p>', unsafe_allow_html=True)
-        filler = voice.tts(random.choice(T["fillers"]), cache=True)
-        if filler:
-            st.audio(filler, format="audio/mp3", autoplay=True)
-
-
-def handle_question(text, input_type):
-    """The user talked (voice) or typed a question."""
+def user_says(text, input_type):
     ss.subs.append(("you", text))
-    db.log_turn(sid, ss.mode, ss.step, "user", text, input_type)
-    if ss.mode == "alone":
-        log("help_request", input_type)
-    ss.last_action = "a posé une question"
-    answer(text, is_question=True)
+    if ss.session_id:
+        db.log_turn(ss.session_id, ss.mode, ss.step, "user", text, input_type)
+
+
+def slip_in_alone():
+    """In alone mode, after 2+ errors or help requests, Salma offers one more assisted round."""
+    if ss.mode == "alone" and not ss.repeat_offered and ss.alone_slips >= 2:
+        ss.repeat_offered = True
+        speak(T["lines"]["repeat_offer"])
+
+
+def mistake(kind, typed):
+    """Wrong reference or wrong code."""
+    log(f"error_{kind}", typed[:40])
+    key = (ss.mode, ss.step)
+    ss.errors[key] = ss.errors.get(key, 0) + 1
+    ss.error = f"error_{kind}"
+    ss.last_action = f"a tapé « {typed[:40]} », ce qui est faux"
+    if ss.mode == "coached":
+        if ss.errors[key] == 1:
+            speak(**T["mistakes"][kind])
+        else:
+            answer(f"La personne s'est encore trompée ({ss.errors[key]} erreurs sur cet écran).")
     slip_in_alone()
     st.rerun()
 
 
 def lost(input_type=None, text=None):
-    """« Je suis perdu(e) » — the button, or a spoken phrase with « perdu », « aide », « comprends pas »."""
+    """« Je suis perdu(e) » — the button, or a phrase with « perdu », « aide », « comprends pas »."""
     if text:
-        ss.subs.append(("you", text))
-        db.log_turn(sid, ss.mode, ss.step, "user", text, input_type)
+        user_says(text, input_type)
     log("lost", input_type or "button")
     ss.last_action = f"a dit « {text} »" if text else "a appuyé sur « Je suis perdu(e) »"
     answer("La personne dit qu'elle est perdue sur cet écran.")
@@ -174,29 +215,54 @@ def nudge():
     st.rerun()
 
 
-def screen_key():
-    return f"{sid[:8]}:{ss.mode}:{ss.step}:{ss.lesson}"
+def start_call():
+    ss.call = "active"
+    ss.call_started = time.time()
+    ss.mode = "learn"
+    reset_screen("consent")
+    speak(T["lines"]["greeting"], "btn_accept")
 
 
-def slip_in_alone():
-    """In alone mode, after 2+ errors or help requests, Salma offers one more coached round."""
-    if ss.mode == "alone" and not ss.repeat_offered and ss.alone_slips >= 2:
-        ss.repeat_offered = True
-        speak(T["lines"]["repeat_offer"])
+def accept():
+    ss.session_id = db.create_session(consent=1)
+    set_mode("learn")
+    reset_screen("profile")
+    log("step_enter")
+    speak(T["lines"]["profile_intro"], "btn_skip")
+    st.rerun()
 
 
-def mistake(kind, typed):
-    """Wrong reference or wrong code."""
-    log(f"error_{kind}", typed[:40])
-    key = (ss.mode, ss.step)
-    ss.errors[key] = ss.errors.get(key, 0) + 1
-    ss.error = f"error_{kind}"
-    ss.last_action = f"a tapé « {typed[:40]} », ce qui est faux"
-    if ss.mode == "coached":
-        if ss.errors[key] == 1:
-            speak(**T["mistakes"][kind])
-        else:
-            answer(f"La personne s'est encore trompée ({ss.errors[key]} erreurs sur cet écran).")
+def decline():
+    speak(T["lines"]["declined"])
+    ss.call = "declined"
+    st.rerun()
+
+
+def start_assisted():
+    set_mode("coached")
+    go("home")
+
+
+def understood():
+    go(ss.next_step)
+
+
+def handle_text(text, input_type):
+    """Anything the user said (voice) or wrote."""
+    text = text.strip()[:300]
+    if not text:
+        return
+    if LOST_WORDS.search(text) and ss.step not in ("consent", "profile"):
+        lost(input_type, text)
+    user_says(text, input_type)
+    if ss.step == "consent" and (YES_WORDS.search(text) or NO_WORDS.search(text)):
+        accept() if YES_WORDS.search(text) and not NO_WORDS.search(text) else decline()
+    if ss.step == "concept" and YES_WORDS.search(text):
+        understood()
+    if ss.mode == "alone":
+        log("help_request", input_type)
+    ss.last_action = "a posé une question"
+    answer(text, is_question=True)
     slip_in_alone()
     st.rerun()
 
@@ -210,274 +276,244 @@ def reset_call():
         ss.pop(key, None)
 
 
-# ---------- call not started / ended ----------
-if ss.call == "idle":
-    st.title(UI["call_title"])
-    reassure(UI["reassure"])
-    st.markdown(UI["call_intro"])
-    if st.button(UI["call_button"], type="primary", key="btn_call"):
-        ss.call = "active"
-        ss.call_started = time.time()
-        set_mode("learn")
-        ss.step = "lesson"
-        log("step_enter", "lesson_1")
-        speak(T["lines"]["greeting"])
-        speak(T["lessons"][0]["say"], "lesson_card")
-        st.rerun()
+def app_header():
+    badge = UI["alone_badge"] if ss.mode == "alone" else UI["reassure"]
+    st.markdown(f'<div class="apphead"><span class="brand">{UI["app_title"]}</span>'
+                f'<span class="badge">{badge}</span></div>', unsafe_allow_html=True)
+
+
+# ---------- before the call ----------
+if ss.call in ("idle", "ended", "declined"):
+    with st.container(key="app"):
+        app_header()
+        if ss.call == "idle":
+            st.markdown(f"### {UI['call_title']}")
+            st.markdown(UI["call_intro"])
+            if st.button(UI["call_button"], type="primary", key="btn_call"):
+                start_call()
+                st.rerun()
+        else:
+            st.markdown(f"### {UI['call_ended'] if ss.call == 'ended' else UI['declined']}")
+            if st.button(UI["call_again"], type="primary", key="btn_call_again"):
+                if ss.call == "ended" and ss.mode:
+                    ss.call = "active"
+                    speak(T["lines"]["resume"])
+                else:
+                    reset_call()
+                    start_call()
+                st.rerun()
+    # Audio of Salma's last words (e.g. goodbye) still plays after the call.
+    audio = b"".join(voice.tts(text, cache=fixed) or b"" for text, fixed in ss.to_say)
+    ss.to_say = []
+    if audio:
+        st.audio(audio, format="audio/mp3", autoplay=True)
+    typed = st.chat_input(UI["chat_placeholder"])
+    if typed:  # writing to Salma also starts the call
+        if ss.call != "active":
+            reset_call()
+            start_call()
+        thinking = st.empty()
+        handle_text(typed, "text")
     st.stop()
 
-if ss.call == "ended":
-    st.title(UI["call_ended"])
-    if st.button(UI["call_again"], type="primary"):
-        ss.call = "active"
-        speak(T["lines"]["resume"])
-        st.rerun()
-    if st.button(UI["go_home"]):
-        st.switch_page("home.py")
-    st.stop()
-
-# ---------- call bar: fixed at the top on every step (avatar, timer, status, last line, hang up) ----------
+# ---------- call bar: fixed at the top (avatar, timer, status, hang up) ----------
 st.markdown(CALLBAR_CSS, unsafe_allow_html=True)
-last_salma = next((text for who, text in reversed(ss.subs) if who == "salma"), "")
 with st.container(key="callbar"):
     # Salma's ear: continuous listening + status ("Salma vous écoute…" / "parle…" / "réfléchit…")
     ear = salma_ear(
         listen=ss.mode != "done", nudge=ss.mode != "done", screen=screen_key(),
-        turn=f"{len(ss.subs)}-{ss.ear_ack}", elapsed=int(time.time() - ss.call_started), last_line=last_salma,
-        labels={k: UI[k] for k in ("listening", "speaking", "thinking", "paused", "nomic")} | {"title": UI["call_header"].replace("📞", "").strip()},
+        turn=f"{len(ss.subs)}-{ss.ear_ack}", elapsed=int(time.time() - ss.call_started), last_line="",
+        labels={k: UI[k] for k in ("listening", "speaking", "thinking", "paused", "nomic")} | {"title": UI["call_header"]},
     )
     if st.button(UI["hangup"], key="btn_hangup"):
         log("hangup")
         ss.call = "ended"
         st.rerun()
 if result_value(ear, "unsupported"):
-    ss.speech_supported = False  # no Web Speech API or mic refused: fallback inputs for the rest of the session
-speech_supported = ss.get("speech_supported", True)
+    print(f"[ear] speech recognition unavailable in this browser: {result_value(ear, 'unsupported')}")
 
-captions = "".join(
-    f'<p class="{"you" if who == "you" else ""}"><b>{UI[who]} :</b> {html.escape(text)}</p>'
-    for who, text in ss.subs[-3:]
-)
 # Salma speaks: play what she said since the last render (fixed lines come from the audio cache).
-audio = b""
-for text, fixed in ss.to_say:
-    audio += voice.tts(text, cache=fixed) or b""
+audio = b"".join(voice.tts(text, cache=fixed) or b"" for text, fixed in ss.to_say)
 ss.to_say = []
-st.markdown(
-    f'<div class="callpanel"><div class="subs">{captions}</div></div>',
-    unsafe_allow_html=True,
-)
 if audio:
     st.audio(audio, format="audio/mp3", autoplay=True)
-if ss.last_source and ss.get("provider_view"):  # AI provider + latency: tester info only
-    st.caption(f"🔌 {ss.last_source}")
-thinking = st.empty()  # "Salma réfléchit…" while the AI answers
+thinking = st.empty()  # hidden filler audio while the AI answers
 highlight_css(ss.highlight)
-
-reassure(UI["reassure"])
-if ss.mode == "alone":
-    st.caption(UI["alone_badge"])
 
 step = ss.step
 
-# ---------- Learn: short spoken lessons ----------
-if ss.mode == "learn":
-    lesson = T["lessons"][ss.lesson]
-    st.markdown(
-        f'<div class="lesson" id="lesson_card"><h3>{lesson["title"]}</h3><p>{lesson["say"]}</p></div>',
-        unsafe_allow_html=True,
-    )
-    last = ss.lesson == len(T["lessons"]) - 1
-    if st.button(UI["start_practice"] if last else UI["next"], type="primary", key="btn_next"):
-        if last:
-            set_mode("coached")
+# ---------- the fictional payment app ----------
+with st.container(key="app"):
+    app_header()
+
+    if step == "consent":
+        st.subheader(UI["consent_title"])
+        st.markdown(UI["consent_body"])
+        if st.button(UI["consent_yes"], type="primary", key="btn_accept"):
+            accept()
+        if st.button(UI["consent_no"], key="btn_decline"):
+            decline()
+
+    elif step == "profile":
+        st.subheader(UI["profile_title"])
+        st.caption(UI["profile_hint"])
+        name = st.text_input(UI["name_label"], key="input_name", max_chars=30)
+        age = st.pills(UI["age_label"], UI["age_options"], key="pill_age")
+        edu = st.pills(UI["edu_label"], UI["edu_options"], key="pill_edu")
+        job = st.pills(UI["job_label"], UI["job_options"], key="pill_job")
+        if st.button(UI["profile_save"], type="primary", key="btn_profile"):
+            ss.name = name.strip()
+            db.update_session(ss.session_id, age_range=age, education=edu, occupation=job)
+            start_assisted()
+        if st.button(UI["profile_skip"], key="btn_skip"):
+            start_assisted()
+
+    elif step == "concept":
+        c = T["concepts"][ss.concept]
+        st.markdown(f'<div class="concept" id="concept_card"><h3>{c["title"]}</h3><p>{c["text"]}</p></div>',
+                    unsafe_allow_html=True)
+        if st.button(UI["understood"], type="primary", key="btn_understood"):
+            understood()
+
+    elif step == "home":
+        st.markdown(
+            f'<div class="card" id="balance">{UI["balance_label"]}<br>'
+            f'<span class="balance">{money(WALLET["balance"])}</span></div>',
+            unsafe_allow_html=True,
+        )
+        if st.button(UI["pay_bill"], type="primary", key="btn_pay"):
+            go("biller")
+
+    elif step == "biller":
+        st.subheader(UI["biller_title"])
+        if st.button(UI["biller_electricity"], type="primary", key="btn_elec"):
+            go("reference")
+        if st.button(UI["biller_water"], key="btn_water"):
+            ss.last_action = "a appuyé sur Eau au lieu d'Électricité"
+            st.info(UI["water_info"])
+
+    elif step == "reference":
+        st.subheader(UI["reference_title"])
+        st.markdown(
+            f'<div class="bill" id="bill_card"><b>{UI["bill_header"]}</b>'
+            f'<div class="top"><span>{UI["bill_date_label"]} : {WALLET["bill_date"]}</span>'
+            f'<span>{UI["bill_ref_label"]} : <span class="ref" id="bill_ref">{WALLET["reference"]}</span></span></div>'
+            f'<br>{UI["bill_amount_label"]} : <b>{money(WALLET["amount"])}</b></div>',
+            unsafe_allow_html=True,
+        )
+        with st.form("reference_form", border=False):
+            typed = st.text_input(UI["reference_label"], placeholder="EL-....-....", key="input_ref")
+            if st.form_submit_button(UI["continue"], type="primary"):
+                # Forgiving check: ignore case, spaces and dashes.
+                if typed.upper().replace(" ", "").replace("-", "") == WALLET["reference"].replace("-", ""):
+                    go("confirm")
+                mistake("reference", typed)
+
+    elif step == "confirm":
+        st.subheader(UI["confirm_title"])
+        st.markdown(
+            f'<div class="card" id="summary">'
+            f'🏢 {UI["confirm_biller"]} : <b>{WALLET["biller"]} — {WALLET["bill_type"]}</b><br>'
+            f'🔢 {UI["bill_ref_label"]} : <b>{WALLET["reference"]}</b><br>'
+            f'💰 {UI["bill_amount_label"]} : <b>{money(WALLET["amount"])}</b></div>',
+            unsafe_allow_html=True,
+        )
+        if st.button(UI["confirm_button"], type="primary", key="btn_confirm"):
+            go("otp")
+
+    elif step == "otp":
+        st.subheader(UI["otp_title"])
+        st.markdown(
+            f'<div class="sms" id="sms"><b>{UI["sms_from"]}</b><br>{UI["sms_text"]}</div>', unsafe_allow_html=True
+        )
+        with st.form("otp_form", border=False):
+            typed = st.text_input(UI["otp_label"], max_chars=6, key="input_otp")
+            if st.form_submit_button(UI["validate"], type="primary"):
+                if typed.strip() != WALLET["otp"]:
+                    mistake("otp", typed)
+                log("complete")
+                if ss.mode == "coached":
+                    go("receipt")
+                # Alone run finished: this is the "Adopt" moment.
+                ss.alone_secs = int(time.time() - (ss.alone_started or time.time()))
+                db.update_session(ss.session_id, ended_at=db.now(), completed=1,
+                                  completed_alone=int(ss.alone_slips == 0 and ss.alone_nudges == 0))
+                set_mode("done")
+                reset_screen("done")
+                log("step_enter")
+                done_line = T["lines"]["done"]
+                speak(f"Bravo {ss.name} ! {done_line}" if ss.name else done_line,
+                      provider="fixed" if not ss.name else "fixed_name")
+                st.rerun()
+
+    elif step == "receipt":
+        st.success(UI["receipt_title"])
+        st.markdown(
+            f'<div class="card" id="receipt">'
+            f'🏢 {WALLET["biller"]} — {WALLET["bill_type"]}<br>'
+            f'🔢 {UI["bill_ref_label"]} : <b>{WALLET["reference"]}</b><br>'
+            f'💰 {UI["bill_amount_label"]} : <b>{money(WALLET["amount"])}</b><br>'
+            f'{UI["new_balance"]} : <b>{money(WALLET["balance"] - WALLET["amount"])}</b></div>',
+            unsafe_allow_html=True,
+        )
+        if st.button(UI["try_alone"], type="primary", key="btn_alone"):
+            set_mode("alone")
+            ss.alone_started = time.time()
+            ss.alone_slips = 0
+            ss.alone_nudges = 0
+            ss.repeat_offered = False
+            ss.repeat_declined = False
+            speak(T["lines"]["alone_intro"])
             go("home")
-        ss.lesson += 1
-        log("step_enter", f"lesson_{ss.lesson + 1}")
-        speak(T["lessons"][ss.lesson]["say"], "lesson_card")
-        st.rerun()
 
-# ---------- Wallet screens ----------
-elif step == "home":
-    st.subheader(UI["app_title"])
-    st.markdown(
-        f'<div class="card" id="balance">{UI["balance_label"]}<br>'
-        f'<span class="balance">{money(WALLET["balance"])}</span></div>',
-        unsafe_allow_html=True,
-    )
-    if st.button(UI["pay_bill"], type="primary", key="btn_pay"):
-        go("biller")
-
-elif step == "biller":
-    st.subheader(UI["biller_title"])
-    if st.button(UI["biller_electricity"], type="primary", key="btn_elec"):
-        go("reference")
-    if st.button(UI["biller_water"], key="btn_water"):
-        ss.last_action = "a appuyé sur Eau au lieu d'Électricité"
-        st.info(UI["water_info"])
-
-elif step == "reference":
-    st.subheader(UI["reference_title"])
-    st.markdown(
-        f'<div class="bill" id="bill_card"><b>{UI["bill_header"]}</b>'
-        f'<div class="top"><span>{UI["bill_date_label"]} : {WALLET["bill_date"]}</span>'
-        f'<span>{UI["bill_ref_label"]} : <span class="ref" id="bill_ref">{WALLET["reference"]}</span></span></div>'
-        f'<br>{UI["bill_amount_label"]} : <b>{money(WALLET["amount"])}</b></div>',
-        unsafe_allow_html=True,
-    )
-    with st.form("reference_form"):
-        typed = st.text_input(UI["reference_label"], placeholder="EL-....-....", key="input_ref")
-        if st.form_submit_button(UI["continue"], type="primary"):
-            # Forgiving check: ignore case, spaces and dashes.
-            if typed.upper().replace(" ", "").replace("-", "") == WALLET["reference"].replace("-", ""):
-                go("confirm")
-            mistake("reference", typed)
-
-elif step == "confirm":
-    st.subheader(UI["confirm_title"])
-    st.markdown(
-        f'<div class="card" id="summary">'
-        f'🏢 {UI["confirm_biller"]} : <b>{WALLET["biller"]} — {WALLET["bill_type"]}</b><br>'
-        f'🔢 {UI["bill_ref_label"]} : <b>{WALLET["reference"]}</b><br>'
-        f'💰 {UI["bill_amount_label"]} : <b>{money(WALLET["amount"])}</b></div>',
-        unsafe_allow_html=True,
-    )
-    if st.button(UI["confirm_button"], type="primary", key="btn_confirm"):
-        go("otp")
-
-elif step == "otp":
-    st.subheader(UI["otp_title"])
-    st.markdown(
-        f'<div class="sms" id="sms"><b>{UI["sms_from"]}</b><br>{UI["sms_text"]}</div>', unsafe_allow_html=True
-    )
-    with st.form("otp_form"):
-        typed = st.text_input(UI["otp_label"], max_chars=6, key="input_otp")
-        if st.form_submit_button(UI["validate"], type="primary"):
-            if typed.strip() != WALLET["otp"]:
-                mistake("otp", typed)
-            log("complete")
-            if ss.mode == "coached":
-                go("receipt")
-            # Alone run finished: this is the "Adopt" moment.
-            ss.alone_secs = int(time.time() - (ss.alone_started or time.time()))
-            db.update_session(sid, ended_at=db.now(), completed=1, completed_alone=int(ss.alone_slips == 0 and ss.alone_nudges == 0))
-            set_mode("done")
-            ss.step = "done"
-            ss.highlight = None
-            log("step_enter")
-            speak(T["lines"]["done"])
+    elif step == "done":
+        st.subheader(UI["done_title"])
+        mins, secs = divmod(ss.alone_secs or 0, 60)
+        st.markdown(
+            f'<div class="card" id="receipt">{UI["done_time"]}<br>'
+            f'<span class="big-value">{mins} min {secs:02d} s</span>'
+            f'<br>🏢 {WALLET["biller"]} — {money(WALLET["amount"])} ✅</div>',
+            unsafe_allow_html=True,
+        )
+        st.markdown(f"**{UI['done_value']}**")
+        if st.button(UI["restart"], type="primary", key="btn_restart"):
+            reset_call()
             st.rerun()
 
-elif step == "receipt":
-    st.success(UI["receipt_title"])
-    st.markdown(
-        f'<div class="card" id="receipt">'
-        f'🏢 {WALLET["biller"]} — {WALLET["bill_type"]}<br>'
-        f'🔢 {UI["bill_ref_label"]} : <b>{WALLET["reference"]}</b><br>'
-        f'💰 {UI["bill_amount_label"]} : <b>{money(WALLET["amount"])}</b><br>'
-        f'{UI["new_balance"]} : <b>{money(WALLET["balance"] - WALLET["amount"])}</b></div>',
-        unsafe_allow_html=True,
-    )
-    if st.button(UI["try_alone"], type="primary", key="btn_alone"):
-        set_mode("alone")
-        ss.alone_started = time.time()
-        ss.alone_slips = 0
-        ss.alone_nudges = 0
-        ss.repeat_offered = False
-        ss.repeat_declined = False
-        speak(T["lines"]["alone_intro"])
-        go("home")
+    if ss.error:
+        st.error(UI[ss.error])
 
-elif step == "done":
-    st.title(UI["done_title"])
-    mins, secs = divmod(ss.alone_secs or 0, 60)
-    st.markdown(
-        f'<div class="card" id="receipt">{UI["done_time"]}<br><span class="big-value">{mins} min {secs:02d} s</span>'
-        f'<br>🏢 {WALLET["biller"]} — {money(WALLET["amount"])} ✅</div>',
-        unsafe_allow_html=True,
-    )
-    st.markdown(f"### {UI['done_value']}")
-    if st.button(UI["restart"], type="primary", key="btn_restart"):
-        reset_call()
-        ss.session_id = db.create_session(consent=1)
-        st.rerun()
-    if not ss.analyzed:  # in the background: the analysis can take ~10 s and must not block the screen
-        ss.analyzed = True
-        threading.Thread(target=analysis.analyze_session, args=(sid,), daemon=True).start()
-    st.stop()
-
-# ---------- friendly error ----------
-if ss.error:
-    st.warning(UI[ss.error])
-
-# ---------- repeat offer (alone, after 2+ slips) ----------
-if ss.mode == "alone" and ss.repeat_offered and not ss.repeat_declined:
-    st.info(T["lines"]["repeat_offer"])
-    if st.button(UI["repeat_yes"], key="btn_repeat"):
-        log("repeat_coached")
-        set_mode("coached")
-        ss.repeat_offered = False
-        go("home")
-    if st.button(UI["repeat_no"], key="btn_repeat_no"):
-        ss.repeat_declined = True
-        st.rerun()
-
-# ---------- other ways to talk to Salma (continuous listening is the main one) ----------
-def fallback_inputs():
-    if voice.stt_available():
-        recording = st.audio_input(UI["mic_label"], key=f"mic_{ss.mic_n}")
-        if recording:
-            ss.mic_n += 1  # fresh widget next time, so this recording is used once
-            think()
-            heard = voice.transcribe(recording.getvalue())
-            del recording  # never stored
-            if heard:
-                handle_voice(heard[:300])
-            speak(UI["not_understood"])
+    # Salma's offer after 2+ slips in the alone run (she says it; here are the two answers).
+    if ss.mode == "alone" and ss.repeat_offered and not ss.repeat_declined:
+        if st.button(UI["repeat_yes"], type="primary", key="btn_repeat"):
+            log("repeat_coached")
+            set_mode("coached")
+            ss.repeat_offered = False
+            go("home")
+        if st.button(UI["repeat_no"], key="btn_repeat_no"):
+            ss.repeat_declined = True
             st.rerun()
-    with st.form("ask_form", clear_on_submit=True):
-        question = st.text_input(UI["text_label"], key="input_question")
-        sent = st.form_submit_button(UI["send"])
-    if sent and question.strip():
-        handle_question(question.strip()[:300], "text")
 
+    if step in WALLET_STEPS[1:-1] and st.button(UI["back"], key="btn_back"):
+        log("back")
+        reset_screen(WALLET_STEPS[WALLET_STEPS.index(step) - 1])
+        st.rerun()
 
-def handle_voice(text):
-    if LOST_WORDS.search(text):
-        lost("voice", text)
-    handle_question(text, "voice")
-
-
-st.divider()
-if speech_supported:
-    with st.expander(UI["fallback_title"]):
-        fallback_inputs()
-else:
-    fallback_inputs()  # no Web Speech API (or mic refused): show the fallback directly
-
-# ---------- I'm lost / help / back ----------
-if st.button(UI["lost"], key="btn_lost"):
+if step in WALLET_STEPS[:-1] and st.button(UI["lost"], key="btn_lost"):
     lost()
 
-if ss.mode == "alone" and st.button(UI["help"], key="btn_help"):
-    log("help_request")
-    ss.last_action = "a appuyé sur « Aide »"
-    answer("La personne demande de l'aide sur cet écran.")
-    slip_in_alone()
-    st.rerun()
+if step == "done" and not ss.analyzed:  # in the background: can take ~10 s, must not block the screen
+    ss.analyzed = True
+    threading.Thread(target=analysis.analyze_session, args=(ss.session_id,), daemon=True).start()
 
-if step in WALLET_STEPS[1:-1] and st.button(UI["back"], key="btn_back"):
-    log("back")
-    ss.step = WALLET_STEPS[WALLET_STEPS.index(step) - 1]
-    ss.error = None
-    ss.highlight = None
-    st.rerun()
-
-# ---------- what the ear heard (handled last, once the screen is drawn) ----------
+# ---------- what the user said or wrote (handled last, once the screen is drawn) ----------
+typed = st.chat_input(UI["chat_placeholder"])
+if typed:
+    handle_text(typed, "text")
 heard = result_value(ear, "speech")
 if heard:
     ss.ear_ack += 1
-    handle_voice(str(heard)[:300])
+    handle_text(str(heard), "voice")
 if result_value(ear, "idle"):
     ss.ear_ack += 1
     nudge()

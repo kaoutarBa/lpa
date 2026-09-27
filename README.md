@@ -1,8 +1,9 @@
 # Learn, Practice, Adopt
 
-A practice mobile wallet with a voice coach ("Salma") that helps older people learn to pay a bill:
-**Learn** (short spoken lessons) → **Practice** (guided, fake money) → **Adopt** (alone, then see the value).
-Every session is anonymous; a dashboard shows the wallet provider where users struggle and what to fix.
+A practice mobile wallet with a voice coach, Salma, who helps older people learn to pay a bill.
+Everything happens inside one call: consent → optional questions → assisted mode (Salma explains a concept,
+then you apply it in the app) → try alone (Salma stays on the line) → done.
+Sessions are anonymous; a PIN-protected dashboard shows the wallet provider where people struggle and what to fix.
 
 ## Run locally
 ```bash
@@ -13,16 +14,16 @@ python -m streamlit run app.py
 Works without any key: Salma falls back to pre-written answers, text only if speech is unavailable.
 
 ## Files
-- `app.py` navigation (user view / PIN-protected provider view) · `home.py` consent
-- `pages/1_Practice.py` the call + wallet replica · `pages/2_Dashboard.py` progression dashboard (provider view only)
+- `app.py` navigation (user view = the call only; provider view with PIN adds the dashboard)
+- `pages/1_Practice.py` the call + the fictional payment app · `pages/2_Dashboard.py` provider dashboard
 - `ear.py` + `salma_ear.js` continuous listening (Web Speech API) and the call bar
-- `coach.py` LLM calls + fallback chain · `voice.py` gTTS + Whisper · `analysis.py` AI analysis · `progress.py` autonomy levels
+- `coach.py` LLM calls + fallback chain · `voice.py` gTTS + Whisper · `analysis.py` AI analysis · `progress.py` autonomy
 - `content.py` all texts (keyed by language) · `db.py` SQLite (`lpa.db`, created on start)
 - `check_ai.py` live check of your keys: `python check_ai.py` (one coach call + one analysis call)
 
 ## Provider view
-Open the sidebar (collapsed by default), choose **Vue : Fournisseur** at the bottom and type `PROVIDER_PIN`.
-The dashboard and the simulated-sessions tool only exist in that view.
+Open the sidebar (collapsed by default, not available during a call), choose **Vue : Fournisseur** at the bottom
+and type `PROVIDER_PIN`. The dashboard only exists in that view.
 
 ## Deploy (Streamlit Community Cloud)
 1. share.streamlit.io → **Create app** → repo `kaoutarBa/lpa`, branch, main file `app.py`.

@@ -1,7 +1,7 @@
 """Entry point: page navigation defined in code, with a user view and a PIN-protected provider view.
 
-User view (default): only the journey pages. The dashboard is not in the menu and not reachable by URL.
-Provider view: adds the dashboard (with the simulated-sessions tool). Switch at the bottom of the sidebar.
+User view (default): only the call with Salma, no menu. The dashboard is not reachable, not even by URL.
+Provider view (PIN): adds the dashboard to the menu. Switch at the bottom of the sidebar.
 """
 import streamlit as st
 
@@ -14,13 +14,10 @@ db.init_db()
 ss = st.session_state
 ss.setdefault("provider_view", False)
 
-pages = [
-    st.Page("home.py", title="Accueil", icon="🏠", default=True),
-    st.Page("pages/1_Practice.py", title="Entraînement", icon="💳", url_path="practice"),
-]
+pages = [st.Page("pages/1_Practice.py", title="Appel", icon="📞", default=True)]
 if ss.provider_view:
     pages.append(st.Page("pages/2_Dashboard.py", title="Tableau de bord", icon="📊", url_path="dashboard"))
-page = st.navigation(pages)
+page = st.navigation(pages, position="sidebar" if ss.provider_view else "hidden")
 
 # Discreet view switch, pushed to the bottom of the sidebar.
 st.markdown("<style>.st-key-view_switch { order: 99; margin-top: 2rem; opacity: .75; font-size: 16px; }"

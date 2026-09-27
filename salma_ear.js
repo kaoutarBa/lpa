@@ -36,12 +36,21 @@ function flush() {
   }
 }
 
-function markUnsupported() {
+function markUnsupported(reason) {
   if (S.reported) return;
   S.reported = true;
   S.supported = false;
-  // Slightly later, so it is not lost during the very first mount. Python remembers it for the session.
-  setTimeout(() => S.setTriggerValue && S.setTriggerValue("unsupported", true), 300);
+  // Slightly later, so it is not lost during the very first mount. Python prints the reason in the terminal.
+  setTimeout(() => S.setTriggerValue && S.setTriggerValue("unsupported", reason || "no Web Speech API"), 300);
+}
+
+function retryMic() {
+  // Tap on the call bar after allowing the microphone: try listening again.
+  if (!SR || S.supported) return;
+  S.supported = true;
+  S.reported = false;
+  S.errors = 0;
+  S.nextStart = 0;
 }
 
 function startRec() {
@@ -69,8 +78,8 @@ function startRec() {
       S.nextStart = Date.now() + 300;
     };
     r.onerror = (e) => {
-      if (e.error === "not-allowed" || e.error === "service-not-allowed") markUnsupported();
-      else if (e.error !== "no-speech" && e.error !== "aborted" && ++S.errors >= 5) markUnsupported();
+      if (["not-allowed", "service-not-allowed", "audio-capture"].includes(e.error)) markUnsupported(e.error);
+      else if (e.error !== "no-speech" && e.error !== "aborted" && ++S.errors >= 5) markUnsupported(e.error);
     };
     S.rec = r;
   }
@@ -133,11 +142,13 @@ export default function (component) {
     root.innerHTML =
       '<div class="avatar">👩🏽</div><div class="txt"><div class="title">📞 <span class="clock">00:00</span> · ' +
       '<span class="t1"></span></div><div class="status"></div><div class="line"></div></div>';
+    root.addEventListener("click", retryMic);
     parentElement.appendChild(root);
   }
   S.root = root;
   root.querySelector(".t1").textContent = data.labels.title;
   root.querySelector(".line").textContent = data.last_line || "";
+  root.querySelector(".line").style.display = data.last_line ? "" : "none";
 
   const base = Date.now() - data.elapsed * 1000;
   if (Math.abs(base - S.startMs) > 3000) S.startMs = base;
@@ -152,7 +163,7 @@ export default function (component) {
   }
   S.wantListen = !!data.listen;
   S.nudge = !!data.nudge;
-  if (!SR) markUnsupported();
+  if (!SR) markUnsupported("no Web Speech API in this browser");
   if (!S.wantListen) stopRec();
 
   if (!S.loop) {

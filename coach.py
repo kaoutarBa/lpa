@@ -48,8 +48,8 @@ Screen share (what the user sees right now):
 {screen}"""
 
 MODE_LABELS = {
-    "learn": "leçons (la personne écoute des explications)",
-    "coached": "entraînement guidé (vous guidez chaque écran)",
+    "learn": "début de l'appel (accord, puis questions facultatives)",
+    "coached": "mode assisté (vous expliquez un concept, puis la personne l'applique dans l'app)",
     "alone": "essai seul (vous restez silencieuse; la personne vient de vous demander de l'aide)",
     "done": "terminé",
 }

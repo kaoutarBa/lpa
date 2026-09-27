@@ -41,15 +41,15 @@ Session metrics:
 Transcript:
 {transcript}"""
 
-INSIGHTS_PROMPT = """You are a product analyst for a mobile wallet. Below are AGGREGATED results of practice \
-sessions where older users learned to pay a bill with a voice coach: a 1st attempt guided by the coach, then a \
-2nd attempt alone. Indicators: autonomy levels (4 autonomous, 3 almost alone, 2 helped once or twice, \
-1 accompanied, not finished + abandon step), progression between the two attempts (help, errors, idle nudges \
-= the coach relaunched after 20 s of hesitation, time), and difficulty per screen. Plus a few short anonymous quotes.
+INSIGHTS_PROMPT = """You are a product analyst for a mobile wallet. Below are AGGREGATED results of test \
+sessions where older users learned to pay a bill: a 1st attempt with a voice coach (Salma), then a 2nd attempt \
+alone. "Struggling" on a screen = an error, a help request, "I'm lost", a question, or a 20 s hesitation.
 
-Write 3 to 5 findings in French, focused on progression and on the screens that block people. Hard rules:
+Give AT MOST 3 recommendations in French, each one a concrete decision for the wallet product team, most \
+important first. Prefer screens where people still struggle in the 2nd attempt (the app must change there); \
+a drop between attempts means the coaching works. Hard rules:
 - Every item's "evidence" MUST cite at least one number that appears in the data below. No number, no recommendation.
-- Do not invent numbers. Do not extrapolate beyond the data. Stay factual and positive without exaggerating.
+- Do not invent numbers. Do not extrapolate beyond the data. Be factual, short, and not exaggerated.
 - "confidence" is "low" if n_sessions < 10, otherwise low/medium/high depending on sample size and effect size.
 - "n_sessions" is the number of sessions behind the finding.
 
@@ -143,54 +143,45 @@ def _numbers(text):
 
 
 def _rules_insights(data):
-    """No AI available: deterministic findings from the same numbers."""
+    """No AI available: deterministic recommendations from the same numbers."""
     n = data["n_sessions"]
     conf = "low" if n < 10 else "medium"
     items = []
-    p = data.get("progression_attempt1_guided_vs_attempt2_alone", {})
-    pairs = p.get("n_sessions_with_both_attempts", 0)
-    if pairs >= 3:
-        (hg, ha), (ng, na) = p["help_per_person"], p["idle_nudges_per_person"]
+    steps = data.get("sessions_struggling_by_step", {})
+    still = {k: v["alone"] for k, v in steps.items() if v["alone"]["reached"] and v["alone"]["blocked"]}
+    if still:
+        step, v = max(still.items(), key=lambda kv: kv[1]["blocked"] / kv[1]["reached"])
         items.append({
-            "finding": "Les testeurs ont besoin de moins d'aide au 2e essai.",
-            "evidence": f"Aides par personne : {hg} au 1er essai guidé, {ha} au 2e essai seul ; "
-                        f"relances : {ng} puis {na} (n = {pairs}).",
-            "why": "Un premier passage guidé suffit pour que la plupart retiennent les étapes.",
-            "action": "Proposer systématiquement un essai guidé avant le premier vrai paiement.",
-            "how_to_verify": "Suivre aides et relances par personne sur les prochaines sessions réelles.",
+            "finding": f"L'écran « {step} » bloque encore au 2e essai.",
+            "evidence": f"{v['blocked']} sur {v['reached']} sessions en difficulté sur cet écran quand ils sont seuls.",
+            "why": "La difficulté reste après l'accompagnement : elle vient de l'écran lui-même.",
+            "action": f"Simplifier l'écran « {step} » (texte plus court, explication visible sur l'écran).",
+            "how_to_verify": "Ce chiffre doit baisser au 2e essai sur les prochaines sessions.",
+            "confidence": conf, "n_sessions": v["reached"],
+        })
+    g, a = data.get("help_needed_per_person_attempt1_vs_attempt2", [0, 0])
+    pairs = data.get("n_sessions_with_both_attempts", 0)
+    if pairs >= 3 and a < g:
+        items.append({
+            "finding": "Une séance avec Salma réduit l'aide nécessaire.",
+            "evidence": f"Aides et relances par personne : {g} au 1er essai, {a} au 2e (n = {pairs}).",
+            "why": "Un premier passage guidé suffit pour retenir les étapes.",
+            "action": "Proposer la séance guidée aux clients qui paient encore en espèces, avant leur 1er paiement.",
+            "how_to_verify": "Suivre le taux de 1er vrai paiement des personnes guidées à 30 jours.",
             "confidence": "low" if pairs < 10 else conf, "n_sessions": pairs,
         })
-    steps = data.get("difficulty_by_step", {})
-    if steps:
-        step, v = max(steps.items(), key=lambda kv: sum(kv[1].values()))
+    ab = data.get("abandons", {})
+    if ab.get("count"):
+        step, count = max(ab["steps"].items(), key=lambda kv: kv[1])
         items.append({
-            "finding": f"L'écran « {STEP_NAMES.get(step, step)} » bloque le plus.",
-            "evidence": f"{v['errors']} erreurs, {v['help']} aides et {v['nudges']} relances sur {n} sessions.",
-            "why": "C'est l'étape où les utilisateurs hésitent ou se trompent le plus.",
-            "action": "Simplifier le texte de cet écran et y ajouter une explication courte.",
-            "how_to_verify": "Comparer erreurs, aides et relances par session avant et après le changement.",
+            "finding": "Des abandons se concentrent sur un écran.",
+            "evidence": f"{ab['count']} abandons sur {n} sessions, dont {count} à l'écran « {step} ».",
+            "why": "La personne ne sait pas comment continuer.",
+            "action": f"Ajouter une aide visible et un bouton d'appel sur l'écran « {step} ».",
+            "how_to_verify": "Le nombre d'abandons à cet écran doit baisser.",
             "confidence": conf, "n_sessions": n,
         })
-        hesit, hv = max(steps.items(), key=lambda kv: kv[1]["nudges"])
-        if hv["nudges"] and hesit != step:
-            items.append({
-                "finding": f"On hésite longtemps sur l'écran « {STEP_NAMES.get(hesit, hesit)} ».",
-                "evidence": f"{hv['nudges']} relances après 20 s d'inaction sur cet écran ({n} sessions).",
-                "why": "La prochaine action n'est pas évidente.",
-                "action": "Mettre en avant le bouton ou le champ attendu sur cet écran.",
-                "how_to_verify": "Le nombre de relances sur cet écran doit baisser.",
-                "confidence": conf, "n_sessions": n,
-            })
-    items.append({
-        "finding": "Une partie des testeurs paie seule ou presque seule.",
-        "evidence": f"{data.get('alone_or_almost_alone', 0)} sur {n} sessions atteignent le niveau 3 ou 4 ; "
-                    f"{data.get('paid', 0)} sur {n} ont réussi à payer.",
-        "why": "Mesure directe de l'autonomie après l'accompagnement.",
-        "action": "Proposer la séance guidée aux nouveaux clients qui paient encore en espèces.",
-        "how_to_verify": "Suivre le taux de paiement réel à 30 jours des testeurs.",
-        "confidence": conf, "n_sessions": n,
-    })
-    return items
+    return items[:3]
 
 
 def cross_session_insights(data, quotes):
@@ -218,4 +209,4 @@ def cross_session_insights(data, quotes):
         if n < 10 or item["confidence"] not in ("low", "medium", "high"):
             item["confidence"] = "low"
         kept.append(item)
-    return (kept, provider) if kept else (_rules_insights(data), "rules")
+    return (kept[:3], provider) if kept else (_rules_insights(data), "rules")

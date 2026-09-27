@@ -74,3 +74,19 @@ def sessions_progress(sessions, events, turns):
 def share(k, n):
     """'3 sur 5' under 10 sessions, a percentage from 10 on."""
     return f"{k} sur {n}" if n < 10 else f"{k / n:.0%}"
+
+
+def blocking_by_step(events, turns, steps):
+    """For each step and attempt: sessions that reached it, and sessions that struggled there
+    (error, help, « perdu », a question, or a 20 s hesitation)."""
+    signals = events[events.type.isin(ERROR_TYPES + HELP_TYPES + ["idle_nudge"])][["session_id", "mode", "step"]]
+    questions = turns[(turns.speaker == "user") & (turns["mode"] == "coached")][["session_id", "mode", "step"]]
+    blocked = pd.concat([signals, questions]).drop_duplicates().groupby(["step", "mode"]).session_id.nunique()
+    reached = events[events.type == "step_enter"].groupby(["step", "mode"]).session_id.nunique()
+    out = {}
+    for step in steps:
+        out[step] = {
+            attempt: {"blocked": int(blocked.get((step, mode), 0)), "reached": int(reached.get((step, mode), 0))}
+            for attempt, mode in (("guided", "coached"), ("alone", "alone"))
+        }
+    return out

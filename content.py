@@ -52,6 +52,19 @@ h3 { font-size: 28px !important; }
 .subs p { margin: 0 0 6px 0; font-size: 19px !important; color: #fff; }
 .subs .you { color: #b3d4ff; }
 .thinking { color: #ffd600; font-weight: 700; }
+/* Salma is heard, not seen: audio players stay invisible (they still play) */
+[data-testid="stAudio"] { position: absolute !important; width: 1px; height: 1px; overflow: hidden; opacity: 0; }
+/* The fictional payment app */
+.st-key-app { border: 2px solid #d8dee9; border-radius: 26px; padding: 14px 16px 20px 16px;
+    box-shadow: 0 6px 24px rgba(11,31,68,.10); background: #ffffff; }
+.apphead { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap;
+    margin-bottom: 6px; }
+.apphead .brand { font-size: 24px; font-weight: 800; color: #0b3d91; }
+.apphead .badge { font-size: 15px; font-weight: 700; color: #1b3d1f; background: #e8f5e9;
+    border-radius: 999px; padding: 2px 10px; }
+.concept { background: #f3f6fc; border-radius: 16px; padding: 16px 18px; margin: 8px 0 14px 0; }
+.st-key-btn_back button, .st-key-btn_lost button { min-height: 52px; }
+.st-key-btn_back button p, .st-key-btn_lost button p { font-size: 19px !important; }
 /* Salma pointing at an element (see highlight_css) */
 @keyframes point { 0%,100% { outline-color: #ffd600; } 50% { outline-color: #ff9800; } }
 </style>
@@ -93,57 +106,46 @@ TEXTS = {
         "language_name": "français",
         "ui": {
             "reassure": "🛡️ Entraînement · argent fictif",
-            # Consent (app.py)
-            "consent_title": "👋 Bienvenue",
+            "app_title": "💳 Mahfadati",
+            # Before the call
+            "call_title": "Payer une facture avec votre téléphone",
+            "call_intro": "Salma vous guide pas à pas, comme au téléphone. Montez le son 🔊",
+            "call_button": "📞 Appeler Salma",
+            "chat_placeholder": "✍️ Écrire à Salma…",
+            # Call bar
+            "call_header": "En appel avec Salma",
+            "hangup": "📴 Raccrocher",
+            "listening": "🎙️ Salma vous écoute…",
+            "speaking": "🔊 Salma parle…",
+            "thinking": "⏳ Salma réfléchit…",
+            "paused": "🎙️ Micro en pause",
+            "nomic": "✍️ Écrivez à Salma en bas (touchez ici pour réessayer le micro)",
+            "call_ended": "📴 Appel terminé",
+            "call_again": "📞 Rappeler Salma",
+            # Consent (inside the call)
+            "consent_title": "👋 Avant de commencer",
             "consent_body": (
-                "Ici, vous allez **apprendre** à payer une facture avec votre téléphone, "
-                "avec l'aide de **Salma**, au téléphone.\n\n"
-                "- 🎭 C'est **anonyme** : pas de nom, pas de numéro de téléphone.\n"
-                "- 💵 L'argent est **faux**. Rien n'est payé pour de vrai.\n"
-                "- 📝 Nous gardons seulement vos **clics** et le **texte** de vos questions. "
-                "Votre voix n'est jamais enregistrée."
+                "- 🎭 C'est **anonyme** : aucun numéro de téléphone.\n"
+                "- 💵 L'argent est **fictif** : rien n'est payé pour de vrai.\n"
+                "- 📝 On garde seulement vos **clics** et vos **questions**. Votre voix n'est jamais enregistrée."
             ),
-            "consent_yes": "✅ J'accepte, on commence",
+            "consent_yes": "✅ J'accepte",
             "consent_no": "❌ Non merci",
-            "consent_declined": "D'accord. Vous pouvez revenir quand vous voulez. 🙂",
-            "profile_title": "🙂 Quelques questions (facultatif)",
+            "declined": "D'accord. Vous pouvez rappeler Salma quand vous voulez. 🙂",
+            # Profile (inside the call, optional)
+            "profile_title": "🙂 Pour mieux vous aider",
+            "profile_hint": "Tout est facultatif.",
+            "name_label": "Votre prénom (Salma l'utilise pendant l'appel, il n'est jamais enregistré)",
             "age_label": "Votre âge",
             "age_options": ["Moins de 30 ans", "30 – 49 ans", "50 – 64 ans", "65 ans et plus"],
             "edu_label": "Votre niveau d'école",
             "edu_options": ["Pas d'école", "Primaire", "Collège / Lycée", "Université"],
-            "profile_save": "💾 Continuer",
+            "job_label": "Votre activité",
+            "job_options": ["Retraité(e)", "Au foyer", "Commerçant(e)", "Salarié(e)", "Autre"],
+            "profile_save": "➡️ Continuer",
             "profile_skip": "⏭️ Passer",
-            "go_home": "🏠 Retour à l'accueil",
-            "no_session": "Commencez d'abord par la page d'accueil.",
-            # Call
-            "app_title": "💳 Mahfadati Wallet",
-            "call_title": "📞 Salma vous attend",
-            "call_intro": "Salma va vous guider, comme au téléphone. Montez le son 🔊.",
-            "call_button": "📞 Appeler Salma",
-            "call_preparing": "Préparation de l'appel…",
-            "call_header": "📞 En appel avec Salma",
-            "hangup": "📴 Raccrocher",
-            "call_ended": "📴 Appel terminé",
-            "call_again": "📞 Rappeler Salma",
-            "thinking": "Salma réfléchit…",
-            "you": "Vous",
-            "salma": "Salma",
-            "listening": "🎙️ Salma vous écoute…",
-            "speaking": "🔊 Salma parle…",
-            "paused": "🎙️ Micro en pause",
-            "nomic": "✍️ Écrivez à Salma ci-dessous",
-            "fallback_title": "Autre façon de parler à Salma",
-            "mic_label": "🎤 Appuyez pour parler à Salma",
-            "text_label": "… ou écrivez votre question",
-            "send": "📨 Envoyer",
-            "mic_unavailable": "Le micro n'est pas disponible. Écrivez votre question ci-dessous.",
-            "not_understood": "Je n'ai pas bien entendu. Pouvez-vous répéter ?",
-            "lost": "🆘 Je suis perdu(e)",
-            "help": "❓ Aide",
-            "back": "⬅️ Retour",
-            # Learn
-            "next": "➡️ Suivant",
-            "start_practice": "▶️ Commencer l'entraînement",
+            # Concepts
+            "understood": "👍 J'ai compris, on essaie",
             # Wallet screens
             "balance_label": "Votre solde",
             "pay_bill": "🧾 Payer une facture",
@@ -168,51 +170,35 @@ TEXTS = {
             "validate": "✅ Valider",
             "receipt_title": "🎉 Paiement réussi !",
             "new_balance": "Nouveau solde",
-            "error_reference": "😊 Ce n'est pas le bon numéro. Pas de souci, réessayez.",
-            "error_otp": "😊 Ce n'est pas le bon code. Pas de souci, réessayez.",
+            "error_reference": "Ce n'est pas le bon numéro. Réessayez.",
+            "error_otp": "Ce n'est pas le bon code. Réessayez.",
+            "lost": "🆘 Je suis perdu(e)",
+            "back": "⬅️ Retour",
             # Journey
             "try_alone": "💪 Essayer seul(e)",
-            "alone_badge": "💪 Vous êtes seul(e) · Salma reste en ligne",
+            "alone_badge": "💪 Essai seul · Salma reste en ligne",
             "repeat_yes": "🔁 Refaire avec Salma",
             "repeat_no": "💪 Je continue seul(e)",
             "done_title": "🏆 Vous l'avez fait !",
             "done_time": "Temps pour payer seul(e)",
             "done_value": "⏱️ 2 minutes depuis la maison, au lieu d'un trajet et d'une file d'attente.",
             "restart": "🔁 Recommencer",
+            "not_understood": "Je n'ai pas bien entendu. Pouvez-vous répéter ?",
             # Dashboard
             "dashboard_title": "📊 Tableau de bord",
         },
-        # Learn: short spoken lessons (title, text shown and spoken).
-        "lessons": [
-            {
-                "title": "📱 Un paiement numérique, c'est quoi ?",
-                "say": (
-                    "Un paiement numérique, c'est payer une facture depuis votre téléphone. "
-                    "Pas besoin d'aller au guichet, pas besoin de faire la queue."
-                ),
-            },
-            {
-                "title": "🔑 Le code reçu par SMS",
-                "say": (
-                    "Avant de payer, vous recevez un code par SMS. C'est comme une clé envoyée "
-                    "seulement à vous. Il prouve que c'est bien vous. Ne le donnez jamais à personne, "
-                    "même au téléphone."
-                ),
-            },
-            {
-                "title": "🛡️ Ici, rien n'est réel",
-                "say": (
-                    "Maintenant, on va s'entraîner ensemble avec de l'argent fictif. "
-                    "Vous ne pouvez rien casser. Je reste avec vous à chaque étape. C'est clair pour vous ?"
-                ),
-            },
-        ],
         # Fixed lines, pre-generated to audio.
         "lines": {
             "greeting": (
-                "Bonjour, je suis Salma. Je suis là pour vous aider, on a tout notre temps. "
-                "D'abord, trois petites explications."
+                "Bonjour, je suis Salma. Je vais vous aider à payer une facture avec votre téléphone, avec de "
+                "l'argent fictif. C'est anonyme et votre voix n'est pas enregistrée. Vous êtes d'accord ? "
+                "Dites oui, ou appuyez sur « J'accepte »."
             ),
+            "profile_intro": (
+                "Merci ! Pour mieux vous aider, quelques petites questions. C'est facultatif, "
+                "vous pouvez aussi appuyer sur « Passer »."
+            ),
+            "declined": "D'accord, pas de problème. Au revoir, et à bientôt !",
             "alone_intro": "Maintenant, essayez seul. Je reste en ligne si vous avez besoin de moi.",
             "repeat_offer": (
                 "Ce n'est pas grave du tout. Voulez-vous refaire un tour avec moi ? "
@@ -226,45 +212,88 @@ TEXTS = {
         },
         # Short fillers played while the AI thinks, so there is never silence.
         "fillers": ["Hmm, un instant…", "Je regarde votre écran…"],
-        # One spoken instruction per screen in coached mode, with where she points.
+        # Assisted mode: a concept is explained just before the screen where it is used.
+        "concepts": {
+            "payment": {
+                "before": "home",
+                "title": "📱 Payer depuis son téléphone",
+                "text": "Au lieu d'aller au guichet, vous payez votre facture ici, en quelques touches. "
+                        "L'argent part de votre portefeuille Mahfadati.",
+                "say": "D'abord, une idée simple. Payer depuis son téléphone, c'est comme payer au guichet, "
+                       "mais sans se déplacer et sans faire la queue. On essaie ?",
+            },
+            "reference": {
+                "before": "reference",
+                "title": "🔢 La référence de la facture",
+                "text": "C'est le numéro de VOTRE facture. Il est écrit sur le papier, en haut, à côté de la date. "
+                        "On le recopie pour payer la bonne facture.",
+                "say": "Maintenant, la référence. C'est le numéro de votre facture, comme un nom pour elle. "
+                       "Il est écrit en haut du papier, à côté de la date. On essaie ?",
+            },
+            "check": {
+                "before": "confirm",
+                "title": "👀 Vérifier avant de payer",
+                "text": "On regarde toujours le nom, la référence et le montant. "
+                        "Rien n'est payé tant que vous n'avez pas tapé le code SMS.",
+                "say": "Avant de payer, on vérifie toujours trois choses : le nom, la référence et le montant. "
+                       "Et rien n'est payé avant le code. On essaie ?",
+            },
+            "otp": {
+                "before": "otp",
+                "title": "🔑 Le code reçu par SMS",
+                "text": "C'est une clé envoyée seulement à vous, pour prouver que c'est bien vous. "
+                        "Il n'envoie pas d'argent. Ne le donnez jamais à personne, même au téléphone.",
+                "say": "Dernière idée, la plus importante. Le code reçu par SMS, c'est une clé envoyée seulement "
+                       "à vous. Il prouve que c'est bien vous. Ne le donnez jamais à personne. On essaie ?",
+            },
+        },
+        # One spoken instruction per wallet screen in assisted mode, with where she points.
         "steps": {
-            "home": {"say": "Vous voyez votre solde, cinq cents dirhams. Appuyez sur le bouton « Payer une facture ».",
-                     "highlight": "btn_pay"},
+            "home": {"say": "Voici votre portefeuille. Votre solde est de cinq cents dirhams. "
+                            "Appuyez sur « Payer une facture ».", "highlight": "btn_pay"},
             "biller": {"say": "Très bien, c'est exactement ça. Maintenant, choisissez « Électricité ».",
                        "highlight": "btn_elec"},
-            "reference": {"say": "Parfait. Regardez la facture en papier. Le numéro de référence est en haut, "
-                                 "à côté de la date. Recopiez-le dans la case.",
+            "reference": {"say": "À vous : regardez la facture, et recopiez la référence dans la case.",
                           "highlight": "bill_ref"},
-            "confirm": {"say": "Très bien. Vérifiez le nom, la référence et le montant. "
-                               "Si tout est juste, appuyez sur « Confirmer ».",
-                        "highlight": "summary"},
-            "otp": {"say": "Vous avez reçu un SMS avec un code. C'est votre clé. Tapez ce code dans la case.",
-                    "highlight": "sms"},
-            # End of the coached round: hand over to the alone run.
+            "confirm": {"say": "Vérifiez le nom, la référence et le montant. "
+                               "Si tout est juste, appuyez sur « Confirmer ».", "highlight": "summary"},
+            "otp": {"say": "Vous avez reçu le SMS. Tapez le code dans la case.", "highlight": "sms"},
+            # End of the assisted round: hand over to the alone run.
             "receipt": {"say": "Bravo, vous avez payé votre facture ! Maintenant, essayez seul. "
-                               "Appuyez sur « Essayer seul » quand vous êtes prêt.",
-                        "highlight": "btn_alone"},
+                               "Appuyez sur « Essayer seul » quand vous êtes prêt.", "highlight": "btn_alone"},
         },
         # First reaction to a mistake (fixed). A second mistake on the same step goes to the AI.
         "mistakes": {
             "reference": {"say": "Ce n'est pas grave. Regardez la case jaune en haut de la facture, "
-                                 "à côté de la date. Recopiez les lettres et les chiffres.",
-                          "highlight": "bill_ref"},
+                                 "à côté de la date. Recopiez les lettres et les chiffres.", "highlight": "bill_ref"},
             "otp": {"say": "Pas de souci. Le code est dans le SMS gris, ce sont quatre chiffres. "
-                           "Tapez-les dans la case.",
-                    "highlight": "sms"},
+                           "Tapez-les dans la case.", "highlight": "sms"},
         },
         # What Salma "sees" on each screen (screen share), the element ids she can point at,
         # and the validated facts she may use. The LLM must not go beyond these.
         "screens": {
-            "lesson": {
-                "visible": "Une carte de leçon avec un titre et un court texte, et un bouton Suivant.",
-                "ids": ["lesson_card", "btn_next"],
+            "consent": {
+                "visible": "Un écran d'accord : c'est anonyme, l'argent est fictif, on garde les clics et les "
+                           "questions, pas la voix. Boutons « J'accepte » (btn_accept) et « Non merci » (btn_decline).",
+                "ids": ["btn_accept", "btn_decline"],
+                "facts": "L'entraînement est anonyme, avec de l'argent fictif. La voix n'est jamais enregistrée. "
+                         "On garde seulement les clics et le texte des questions. On peut refuser.",
+            },
+            "profile": {
+                "visible": "Des questions facultatives : prénom (input_name), âge, niveau d'école, activité. "
+                           "Boutons « Continuer » (btn_profile) et « Passer » (btn_skip).",
+                "ids": ["input_name", "btn_profile", "btn_skip"],
+                "facts": "Toutes les questions sont facultatives. Le prénom n'est jamais enregistré.",
+            },
+            "concept": {
+                "visible": "Une carte d'explication (concept_card) et un bouton « J'ai compris, on essaie » "
+                           "(btn_understood).",
+                "ids": ["concept_card", "btn_understood"],
                 "facts": (
-                    "Un paiement numérique permet de payer une facture depuis son téléphone, sans guichet. "
-                    "Le code SMS est une clé à usage unique envoyée seulement à la personne; il prouve que "
-                    "c'est bien elle; il ne faut jamais le donner à personne, même au téléphone. "
-                    "L'entraînement utilise de l'argent fictif."
+                    "Payer depuis son téléphone évite le guichet et la queue. La référence est le numéro de la "
+                    "facture, en haut du papier à côté de la date. Avant de payer on vérifie nom, référence et "
+                    "montant ; rien n'est payé avant le code SMS. Le code SMS est une clé envoyée seulement à la "
+                    "personne, il prouve que c'est bien elle, il n'envoie pas d'argent, il ne faut jamais le donner."
                 ),
             },
             "home": {
@@ -307,7 +336,8 @@ TEXTS = {
                 ),
             },
             "receipt": {
-                "visible": "Un reçu (receipt): paiement réussi, Régie Ville, référence, montant, nouveau solde 312,50 MAD.",
+                "visible": "Un reçu (receipt): paiement réussi, Régie Ville, référence, montant, nouveau solde "
+                           "312,50 MAD, et un bouton « Essayer seul » (btn_alone).",
                 "ids": ["receipt", "btn_alone"],
                 "facts": "Le paiement est terminé. Le reçu prouve le paiement.",
             },
@@ -319,8 +349,12 @@ TEXTS = {
         },
         # Last fallback when no AI provider answers: a safe, validated answer per screen.
         "cache": {
-            "lesson": {"say": "Le code SMS, c'est une clé envoyée seulement à vous. Ne le donnez à personne. "
-                              "Appuyez sur « Suivant » pour continuer.", "highlight": "btn_next"},
+            "consent": {"say": "C'est un entraînement anonyme avec de l'argent fictif. Si vous êtes d'accord, "
+                               "dites oui ou appuyez sur « J'accepte ».", "highlight": "btn_accept"},
+            "profile": {"say": "Ces questions sont facultatives. Vous pouvez appuyer sur « Passer ».",
+                        "highlight": "btn_skip"},
+            "concept": {"say": "Prenez votre temps. Quand c'est clair, dites « on essaie » ou appuyez sur le bouton.",
+                        "highlight": "btn_understood"},
             "home": {"say": "Appuyez sur le bouton « Payer une facture », juste sous votre solde.",
                      "highlight": "btn_pay"},
             "biller": {"say": "Votre facture est une facture d'électricité. Appuyez sur « Électricité ».",
