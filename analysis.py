@@ -155,17 +155,6 @@ def _rules_insights(data):
             "how_to_verify": "Comparer erreurs + aides par session avant/après sur le tableau de bord.",
             "confidence": conf, "n_sessions": n,
         })
-    otp = data.get("otp_friction_per_session", {})
-    if "A" in otp and "B" in otp:
-        a, b = otp["A"], otp["B"]
-        items.append({
-            "finding": "Le texte B de l'écran du code SMS change la friction.",
-            "evidence": f"{a['mean']} erreurs + aides par session avec A (n = {a['n']}) contre {b['mean']} avec B (n = {b['n']}).",
-            "why": "B explique que le code confirme l'identité et n'envoie pas d'argent.",
-            "action": "Adopter le texte B si l'écart se confirme.",
-            "how_to_verify": "Test A/B sur plus de sessions réelles.",
-            "confidence": "low" if a["n"] + b["n"] < 10 else conf, "n_sessions": a["n"] + b["n"],
-        })
     items.append({
         "finding": "Part des testeurs qui paient seuls après une séance.",
         "evidence": f"{data['autonomy_pct']} % des {n} sessions : essai seul réussi sans erreur ni aide.",

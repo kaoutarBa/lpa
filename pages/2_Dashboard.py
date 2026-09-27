@@ -66,13 +66,11 @@ with db.connect() as conn:
     events = pd.read_sql("SELECT * FROM events", conn)
     turns = pd.read_sql("SELECT * FROM turns", conn)
     analyses = pd.read_sql("SELECT * FROM analyses", conn)
-sessions["variant"] = sessions["variant"].fillna("A")
 
 # ---------- sidebar: filters + dev helper ----------
 with st.sidebar:
     st.markdown("**🔎 Filtres**")
     include_sim = st.checkbox("Inclure les sessions simulées", value=False)
-    variants = st.multiselect("Variante", ["A", "B"], default=["A", "B"])
     st.divider()
     st.markdown("**🛠️ Dev**")
     if st.button("🧪 Générer 10 sessions simulées"):
@@ -82,7 +80,7 @@ with st.sidebar:
         db.delete_simulated_sessions()
         st.rerun()
 
-s = sessions[sessions.variant.isin(variants)]
+s = sessions
 if not include_sim:
     s = s[s.is_simulated == 0]
 ids = set(s.id)
@@ -92,7 +90,7 @@ N = len(s)
 n_sim = int(s.is_simulated.sum())
 
 st.title(UI["dashboard_title"])
-st.caption(f"N = {N} sessions · {N - n_sim} réelles · {n_sim} simulées · variantes : {', '.join(variants) or '—'}")
+st.caption(f"N = {N} sessions · {N - n_sim} réelles · {n_sim} simulées")
 if n_sim:
     st.warning(f"⚠️ {n_sim} des {N} sessions affichées sont **SIMULÉES** (données de démonstration, pas de vrais utilisateurs).")
 if N == 0:
@@ -180,35 +178,6 @@ else:
             st.markdown(f"**{theme.replace('_', ' ')}** ({count})  \n" +
                         "  \n".join(f"« {q} »" for q in quotes[:2]))
 
-# ---------- 5. Before / after at the OTP step ----------
-st.subheader("🔑 Avant / après : écran du code SMS (A vs B)")
-reached_otp = ev[(ev.step == "otp") & (ev.type == "step_enter")].session_id.unique()
-otp_ev = ev[(ev.step == "otp") & ev.type.isin(ERROR_TYPES + HELP_TYPES)].groupby("session_id").size()
-otp_q = tu[(tu.step == "otp") & (tu.speaker == "user") & (tu["mode"] != "alone")].groupby("session_id").size()
-friction = otp_ev.add(otp_q, fill_value=0)
-rows = []  # (variant, n sessions, mean friction per session)
-for v in ["A", "B"]:
-    vs = s[(s.variant == v) & (s.id.isin(reached_otp))].id
-    if len(vs):
-        rows.append((v, len(vs), friction.reindex(vs, fill_value=0).mean()))
-if rows:
-    names = {"A": "A · « Saisissez le code OTP »", "B": "B · texte expliqué"}
-    fig = go.Figure(go.Bar(
-        x=[f"{names[v]}<br>n = {n}" for v, n, _ in rows], y=[m for *_, m in rows],
-        marker=dict(color=[BLUE if v == "A" else ORANGE for v, *_ in rows], line=dict(color="#fff", width=2)),
-        text=[f"{m:.2f}" for *_, m in rows], textposition="outside", cliponaxis=False, width=0.45,
-        hovertemplate="%{x}<br>%{y:.2f} erreurs + aides par session<extra></extra>",
-    ))
-    fig.update_yaxes(title="erreurs + aides / session")
-    c1, c2 = st.columns([3, 2])
-    c1.plotly_chart(style(fig, "Friction au code SMS par session", 340), config=PLOT_CONFIG)
-    if len(rows) == 2 and rows[0][2] > 0:
-        change = (rows[1][2] - rows[0][2]) / rows[0][2]
-        c2.metric("B vs A", f"{change:+.0%}", delta=f"{rows[1][2] - rows[0][2]:+.2f} par session", delta_color="inverse")
-        c2.caption(f"n = {rows[0][1]} (A) et {rows[1][1]} (B) sessions ayant atteint le code SMS.")
-else:
-    st.caption("Aucune session n'a encore atteint l'écran du code SMS.")
-
 # ---------- 6. Business card ----------
 st.subheader("💼 Potentiel d'adoption")
 st.markdown(
@@ -229,7 +198,6 @@ if st.button("🧠 Générer les recommandations", type="primary"):
         "autonomy_pct": round(autonomy * 100),
         "median_alone_seconds": round(times.median()) if len(times) else None,
         "friction_by_step": {k: {"errors": int(errors.get(k, 0)), "help": int(helps.get(k, 0))} for k in STEPS},
-        "otp_friction_per_session": {v: {"n": n, "mean": round(m, 2)} for v, n, m in rows},
         "question_themes": dict(theme_counts),
     }
     quotes = tu[tu.speaker == "user"].text.str.slice(0, 90).drop_duplicates().head(8).tolist()

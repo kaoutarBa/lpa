@@ -26,7 +26,7 @@ print("\n--- Analysis call (one fake session) ---")
 db.DB_PATH = os.path.join(tempfile.mkdtemp(), "check.db")
 db.init_db()
 sid = db.create_session()
-db.update_session(sid, mode_reached="done", variant="A", completed=1, completed_alone=0)
+db.update_session(sid, mode_reached="done", completed=1, completed_alone=0)
 for mode, step, type in [("coached", "reference", "error_reference"), ("coached", "otp", "error_otp"),
                          ("alone", "otp", "help_request")]:
     db.log_event(sid, mode, step, type)

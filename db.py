@@ -104,7 +104,7 @@ SIM_QUESTIONS = {
 
 
 def generate_simulated_sessions(n=10, seed=None):
-    """Insert n realistic fake sessions. Variant A has more friction at the OTP step than B."""
+    """Insert n realistic fake sessions (always is_simulated = 1)."""
     import json
     import random
     from datetime import timedelta
@@ -112,7 +112,7 @@ def generate_simulated_sessions(n=10, seed=None):
     rnd = random.Random(seed)
     with connect() as conn:
         for i in range(n):
-            sid, variant = str(uuid.uuid4()), "A" if i % 2 == 0 else "B"
+            sid = str(uuid.uuid4())
             t = datetime.now(timezone.utc) - timedelta(hours=rnd.uniform(1, 48))
             events, turns, themes, struggles = [], [], {}, []
 
@@ -133,7 +133,7 @@ def generate_simulated_sessions(n=10, seed=None):
             for k in range(3):
                 ev("learn", "lesson", "step_enter", f"lesson_{k + 1}", (8, 20))
             reached = "learn"
-            otp_friction = 0.65 if variant == "A" else 0.2
+            otp_friction = 0.45
             if rnd.random() < 0.95:
                 reached = "coached"
                 for step in ["home", "biller", "reference", "confirm", "otp", "receipt"]:
@@ -152,7 +152,7 @@ def generate_simulated_sessions(n=10, seed=None):
                 reached = "alone"
                 ev("alone", "home", "step_enter")
                 for step in ["biller", "reference", "confirm", "otp"]:
-                    ev("alone", step, "step_enter", secs=(6, 25) if variant == "A" else (5, 18))
+                    ev("alone", step, "step_enter", secs=(5, 22))
                     if step == "otp" and rnd.random() < otp_friction:
                         ev("alone", step, "error_otp", "48")
                         slips += 1
@@ -162,17 +162,17 @@ def generate_simulated_sessions(n=10, seed=None):
                     if step == "reference" and rnd.random() < 0.15:
                         ev("alone", step, "lost")
                         slips += 1
-                if rnd.random() < (0.8 if variant == "A" else 0.92):
+                if rnd.random() < 0.85:
                     ev("alone", "otp", "complete")
                     reached, alone_ok = "done", slips == 0
                     ev("done", "done", "step_enter", secs=(1, 2))
                 if slips:
                     struggles.append({"step": "otp", "reason": "Hésitation sur le rôle du code SMS."})
             conn.execute(
-                "INSERT INTO sessions (id, started_at, ended_at, mode_reached, variant, completed, completed_alone,"
-                " consent, age_range, education, is_simulated) VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?, 1)",
+                "INSERT INTO sessions (id, started_at, ended_at, mode_reached, completed, completed_alone,"
+                " consent, age_range, education, is_simulated) VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, 1)",
                 (sid, events[0][1], t.isoformat(timespec="seconds") if reached == "done" else None, reached,
-                 variant, int(reached == "done"), int(alone_ok),
+                 int(reached == "done"), int(alone_ok),
                  rnd.choice(["50 – 64 ans", "65 ans et plus", "30 – 49 ans", None]),
                  rnd.choice(["Pas d'école", "Primaire", "Collège / Lycée", None])),
             )

@@ -54,7 +54,6 @@ DEFAULTS = {
 }
 for key, value in DEFAULTS.items():
     ss.setdefault(key, value.copy() if isinstance(value, (list, dict)) else value)
-ss.setdefault("variant", "A")
 
 sid = ss.session_id
 # Fixed call bar on top of the content (never scrolls away); content is pushed down below it.
@@ -213,14 +212,6 @@ def reset_call():
         ss.pop(key, None)
 
 
-# ---------- sidebar: tester-only variant toggle ----------
-with st.sidebar:
-    st.markdown(f"**{UI['sidebar_admin']}**")
-    variant = "B" if st.toggle(UI["variant_label"], value=ss.variant == "B") else "A"
-    if variant != ss.variant:
-        ss.variant = variant
-        db.update_session(sid, variant=variant)
-
 # ---------- call not started / ended ----------
 if ss.call == "idle":
     st.title(UI["call_title"])
@@ -229,7 +220,6 @@ if ss.call == "idle":
     if st.button(UI["call_button"], type="primary", key="btn_call"):
         ss.call = "active"
         ss.call_started = time.time()
-        db.update_session(sid, variant=ss.variant)
         set_mode("learn")
         ss.step = "lesson"
         log("step_enter", "lesson_1")
@@ -363,7 +353,7 @@ elif step == "otp":
         f'<div class="sms" id="sms"><b>{UI["sms_from"]}</b><br>{UI["sms_text"]}</div>', unsafe_allow_html=True
     )
     with st.form("otp_form"):
-        typed = st.text_input(UI[f"otp_label_{ss.variant}"], max_chars=6, key="input_otp")
+        typed = st.text_input(UI["otp_label"], max_chars=6, key="input_otp")
         if st.form_submit_button(UI["validate"], type="primary"):
             if typed.strip() != WALLET["otp"]:
                 mistake("otp", typed)

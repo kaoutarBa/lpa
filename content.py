@@ -164,8 +164,7 @@ TEXTS = {
             "otp_title": "🔑 Code de confirmation",
             "sms_from": "📩 SMS — Mahfadati",
             "sms_text": "Votre code est 4821. Ne le partagez jamais.",
-            "otp_label_A": "Saisissez le code OTP",
-            "otp_label_B": "Tapez le code reçu par SMS. Il confirme que c'est bien vous. Il n'envoie pas d'argent.",
+            "otp_label": "Tapez le code reçu par SMS. Il confirme que c'est bien vous. Il n'envoie pas d'argent.",
             "validate": "✅ Valider",
             "receipt_title": "🎉 Paiement réussi !",
             "new_balance": "Nouveau solde",
@@ -180,8 +179,6 @@ TEXTS = {
             "done_time": "Temps pour payer seul(e)",
             "done_value": "⏱️ 2 minutes depuis la maison, au lieu d'un trajet et d'une file d'attente.",
             "restart": "🔁 Recommencer",
-            "variant_label": "Variante B (texte OTP amélioré)",
-            "sidebar_admin": "🛠️ Testeur / admin",
             # Dashboard
             "dashboard_title": "📊 Tableau de bord",
         },
