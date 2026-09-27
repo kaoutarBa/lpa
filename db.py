@@ -23,6 +23,8 @@ TABLES = {
         ("input_type", "TEXT"), ("provider", "TEXT"), ("latency_ms", "INTEGER"), ("highlight", "TEXT"),
     ],
     "analyses": [("session_id", "TEXT PRIMARY KEY"), ("json", "TEXT")],
+    # end-of-call questions (self-reported, anonymous)
+    "feedback": [("session_id", "TEXT"), ("ts", "TEXT"), ("question", "TEXT"), ("answer", "TEXT")],
 }
 
 MODES = ["learn", "coached", "alone", "done"]
@@ -91,3 +93,9 @@ def count_events(session_id, types, mode=None):
         args.append(mode)
     with connect() as conn:
         return conn.execute(sql, args).fetchone()[0]
+
+
+def save_feedback(session_id, question, answer):
+    with connect() as conn:
+        conn.execute("INSERT INTO feedback (session_id, ts, question, answer) VALUES (?, ?, ?, ?)",
+                     (session_id, now(), question, answer))

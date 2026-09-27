@@ -1,6 +1,6 @@
 """The whole user journey, inside one call with Salma:
 consent → optional profile → assisted practice (a concept is explained, then applied in the app)
-→ try alone (Salma stays on the line and watches) → done.
+→ try alone (Salma stays on the line and watches) → done → a few end-of-call questions → thanks.
 
 The page only shows the fictional payment app. Salma is heard, not read: no transcript on screen.
 The user talks (continuous listening in the call bar) or types in the "Écrire à Salma" box at the bottom.
@@ -49,6 +49,7 @@ DEFAULTS = {
     "analyzed": False,
     "nudged": [],            # screens where Salma already relaunched after 20 s of silence
     "ear_ack": 0,            # bumped each time Python handles something the ear sent
+    "survey_i": 0,           # current end-of-call question
 }
 for key, value in DEFAULTS.items():
     ss.setdefault(key, value.copy() if isinstance(value, (list, dict)) else value)
@@ -131,7 +132,7 @@ def go(step):
 
 
 def screen_key():
-    return f"{ss.call_started}:{ss.mode}:{ss.step}:{ss.concept}"
+    return f"{ss.call_started}:{ss.mode}:{ss.step}:{ss.concept}:{ss.survey_i}"
 
 
 def think():
@@ -252,6 +253,16 @@ def handle_text(text, input_type):
     text = text.strip()[:300]
     if not text:
         return
+    if ss.step == "survey":  # an answer to the current end-of-call question
+        user_says(text, input_type)
+        option = spoken_answer(text)
+        if option:
+            record_answer(option)
+        speak(T["lines"]["survey_reprompt"])
+        st.rerun()
+    if ss.step == "done" and YES_WORDS.search(text):
+        user_says(text, input_type)
+        start_survey()
     if LOST_WORDS.search(text) and ss.step not in ("consent", "profile"):
         lost(input_type, text)
     user_says(text, input_type)
@@ -265,6 +276,38 @@ def handle_text(text, input_type):
     answer(text, is_question=True)
     slip_in_alone()
     st.rerun()
+
+
+def start_survey():
+    ss.survey_i = 0
+    reset_screen("survey")
+    log("step_enter")
+    speak(T["survey"][0]["say"])
+    st.rerun()
+
+
+def record_answer(answer):
+    """Save one end-of-call answer (None = skipped), then ask the next question or say thanks."""
+    q = T["survey"][ss.survey_i]
+    if answer:
+        db.save_feedback(ss.session_id, q["key"], answer)
+    ss.survey_i += 1
+    if ss.survey_i < len(T["survey"]):
+        speak(T["survey"][ss.survey_i]["say"])
+    else:
+        reset_screen("thanks")
+        log("step_enter")
+        speak(T["lines"]["thanks"])
+    st.rerun()
+
+
+def spoken_answer(text):
+    """Map a spoken answer ("un peu", "non", "le code"…) to one of the options, or None."""
+    low = text.lower()
+    for option, words in T["survey"][ss.survey_i]["match"]:
+        if any(re.search(rf"\b{re.escape(w)}", low) for w in words):
+            return option
+    return None
 
 
 def money(x):
@@ -321,7 +364,7 @@ st.markdown(CALLBAR_CSS, unsafe_allow_html=True)
 with st.container(key="callbar"):
     # Salma's ear: continuous listening + status ("Salma vous écoute…" / "parle…" / "réfléchit…")
     ear = salma_ear(
-        listen=ss.mode != "done", nudge=ss.mode != "done", screen=screen_key(),
+        listen=ss.step != "thanks", nudge=ss.step not in ("done", "thanks"), screen=screen_key(),
         turn=f"{len(ss.subs)}-{ss.ear_ack}", elapsed=int(time.time() - ss.call_started), last_line="",
         labels={k: UI[k] for k in ("listening", "speaking", "thinking", "paused", "nomic")} | {"title": UI["call_header"]},
     )
@@ -476,6 +519,22 @@ with st.container(key="app"):
             unsafe_allow_html=True,
         )
         st.markdown(f"**{UI['done_value']}**")
+        if st.button(UI["survey_start"], type="primary", key="btn_survey"):
+            start_survey()
+
+    elif step == "survey":
+        q = T["survey"][ss.survey_i]
+        st.caption(UI["survey_progress"].format(i=ss.survey_i + 1, n=len(T["survey"])))
+        st.subheader(q["say"].replace("Première question. ", "").replace("Dernière question. ", ""))
+        for j, option in enumerate(q["options"]):
+            if st.button(option, key=f"ans_{ss.survey_i}_{j}"):
+                record_answer(option)
+        if st.button(UI["survey_skip"], key=f"skip_{ss.survey_i}"):
+            record_answer(None)
+
+    elif step == "thanks":
+        st.subheader(UI["thanks_title"])
+        st.markdown(UI["thanks_body"])
         if st.button(UI["restart"], type="primary", key="btn_restart"):
             reset_call()
             st.rerun()

@@ -183,6 +183,11 @@ TEXTS = {
             "done_time": "Temps pour payer seul(e)",
             "done_value": "⏱️ 2 minutes depuis la maison, au lieu d'un trajet et d'une file d'attente.",
             "restart": "🔁 Recommencer",
+            "survey_start": "➡️ Continuer",
+            "survey_skip": "⏭️ Passer",
+            "survey_progress": "Question {i} sur {n}",
+            "thanks_title": "🙏 Merci !",
+            "thanks_body": "Vos réponses aident à rendre le paiement par téléphone plus simple. Vous pouvez raccrocher.",
             "not_understood": "Je n'ai pas bien entendu. Pouvez-vous répéter ?",
             # Dashboard
             "dashboard_title": "📊 Tableau de bord",
@@ -206,10 +211,42 @@ TEXTS = {
             ),
             "done": (
                 "Félicitations ! Vous avez payé seul, depuis chez vous. "
-                "Deux minutes au lieu d'un trajet et d'une file d'attente."
+                "Deux minutes au lieu d'un trajet et d'une file d'attente. "
+                "Avant de raccrocher, j'ai quelques petites questions. Appuyez sur « Continuer »."
             ),
+            "survey_reprompt": "Pardon, je n'ai pas compris. Vous pouvez répondre en touchant une des réponses.",
+            "thanks": "Merci beaucoup pour vos réponses, et bravo encore ! Vous pouvez raccrocher. Au revoir !",
             "resume": "Je suis de retour. On reprend là où on s'était arrêtés.",
         },
+        # End-of-call questions: the answers are shown on the dashboard. `positive` = the answer we count
+        # as a yes; `match` maps spoken answers to options, checked in order ("un peu" before "oui"/"non").
+        "survey": [
+            {"key": "understood", "short": "Ont compris le parcours",
+             "say": "Première question. Avez-vous compris comment payer une facture avec votre téléphone ?",
+             "options": ["✅ Oui", "🤔 Un peu", "❌ Non"], "positive": "✅ Oui",
+             "match": [["🤔 Un peu", ["un peu", "à peu près", "moyen"]], ["❌ Non", ["non", "pas compris"]],
+                       ["✅ Oui", ["oui", "compris", "ouais"]]]},
+            {"key": "confident", "short": "Se sentent capables seuls",
+             "say": "Pensez-vous pouvoir payer seul la prochaine fois ?",
+             "options": ["✅ Oui", "🤔 Peut-être", "❌ Non"], "positive": "✅ Oui",
+             "match": [["🤔 Peut-être", ["peut-être", "peut être", "je pense", "pas sûr"]], ["❌ Non", ["non"]],
+                       ["✅ Oui", ["oui", "ouais", "sûr"]]]},
+            {"key": "trust_otp", "short": "Se sentent en sécurité avec le code SMS",
+             "say": "Vous sentez-vous en sécurité avec le code reçu par SMS ?",
+             "options": ["✅ Oui", "🤔 Un peu", "❌ Non"], "positive": "✅ Oui",
+             "match": [["🤔 Un peu", ["un peu", "moyen", "pas trop"]], ["❌ Non", ["non", "peur"]],
+                       ["✅ Oui", ["oui", "ouais"]]]},
+            {"key": "hardest", "short": "Étape jugée la plus difficile",
+             "say": "Quelle étape était la plus difficile pour vous ?",
+             "options": ["🔢 La référence", "👀 Vérifier", "🔑 Le code SMS", "🙂 Rien de difficile"], "positive": None,
+             "match": [["🙂 Rien de difficile", ["rien", "facile", "aucune"]], ["🔢 La référence", ["référence", "numéro"]],
+                       ["👀 Vérifier", ["vérif", "montant"]], ["🔑 Le code SMS", ["code", "sms"]]]},
+            {"key": "will_use", "short": "Vont essayer avec une vraie facture",
+             "say": "Dernière question. Allez-vous essayer de payer une vraie facture avec votre téléphone ?",
+             "options": ["✅ Oui", "🤔 Peut-être", "❌ Non"], "positive": "✅ Oui",
+             "match": [["🤔 Peut-être", ["peut-être", "peut être", "on verra"]], ["❌ Non", ["non"]],
+                       ["✅ Oui", ["oui", "ouais", "bien sûr"]]]},
+        ],
         # Short fillers played while the AI thinks, so there is never silence.
         "fillers": ["Hmm, un instant…", "Je regarde votre écran…"],
         # Assisted mode: a concept is explained just before the screen where it is used.
@@ -272,6 +309,12 @@ TEXTS = {
         # What Salma "sees" on each screen (screen share), the element ids she can point at,
         # and the validated facts she may use. The LLM must not go beyond these.
         "screens": {
+            "survey": {
+                "visible": "Une question de fin d'appel avec des boutons de réponse (Oui, Un peu, Non…).",
+                "ids": [],
+                "facts": "Ce sont des questions facultatives sur l'expérience. Il n'y a pas de mauvaise réponse.",
+            },
+            "thanks": {"visible": "Un écran de remerciement.", "ids": [], "facts": "L'entraînement est terminé."},
             "consent": {
                 "visible": "Un écran d'accord : c'est anonyme, l'argent est fictif, on garde les clics et les "
                            "questions, pas la voix. Boutons « J'accepte » (btn_accept) et « Non merci » (btn_decline).",
@@ -342,8 +385,9 @@ TEXTS = {
                 "facts": "Le paiement est terminé. Le reçu prouve le paiement.",
             },
             "done": {
-                "visible": "L'écran de félicitations avec le temps pris pour payer seul.",
-                "ids": [],
+                "visible": "L'écran de félicitations avec le temps pris pour payer seul, et un bouton « Continuer » "
+                           "(btn_survey) vers quelques questions.",
+                "ids": ["btn_survey"],
                 "facts": "Payer depuis chez soi prend environ 2 minutes au lieu d'un trajet et d'une file d'attente.",
             },
         },
@@ -366,7 +410,10 @@ TEXTS = {
             "otp": {"say": "Le code est dans le SMS gris. C'est une clé pour vous seul. "
                            "Tapez les quatre chiffres dans la case.", "highlight": "sms"},
             "receipt": {"say": "C'est terminé, votre facture est payée.", "highlight": "receipt"},
-            "done": {"say": "Bravo, vous avez réussi !", "highlight": None},
+            "done": {"say": "Bravo, vous avez réussi ! Appuyez sur « Continuer » pour les dernières questions.",
+                     "highlight": "btn_survey"},
+            "survey": {"say": "Répondez simplement en touchant la réponse qui vous correspond.", "highlight": None},
+            "thanks": {"say": "Merci beaucoup ! Vous pouvez raccrocher.", "highlight": None},
         },
     },
 }

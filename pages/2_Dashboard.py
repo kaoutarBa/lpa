@@ -1,6 +1,7 @@
 """Dashboard for the wallet provider: a few numbers that help decide what to fix.
 
 1. Four key figures (autonomy, help needed, main blocking screen, abandons)
+   + what people say at the end of the call, compared with what they actually did
 2. One chart: where people still struggle, 1st attempt (with Salma) vs 2nd attempt (alone)
 3. Why: reasons found by the AI analyses + what people ask
 4. What to do: up to 3 evidence-based recommendations
@@ -15,7 +16,7 @@ import streamlit as st
 
 import analysis
 import db
-from content import UI, inject_css
+from content import T, UI, inject_css
 from progress import STEP_NAMES, blocking_by_step, sessions_progress, share
 
 if not st.session_state.get("provider_view"):  # never shown in the user view (also hidden from the menu)
@@ -51,7 +52,9 @@ with db.connect() as conn:
     events = pd.read_sql("SELECT * FROM events", conn)
     turns = pd.read_sql("SELECT * FROM turns", conn)
     analyses = pd.read_sql("SELECT * FROM analyses", conn)
+    feedback = pd.read_sql("SELECT * FROM feedback", conn)
 ids = set(s.id)
+fb = feedback[feedback.session_id.isin(ids)].drop_duplicates(["session_id", "question"], keep="last")
 ev = events[events.session_id.isin(ids)]
 tu = turns[turns.session_id.isin(ids)]
 N = len(s)
@@ -91,6 +94,35 @@ else:
     kpi(k[2], "Blocage n°1 (essai seul)", "Aucun", "personne ne bloque au 2e essai")
 kpi(k[3], "Abandons", share(len(abandons), N),
     f"surtout : {STEP_NAMES.get(abandons.mode().iloc[0], abandons.mode().iloc[0])}" if len(abandons) else "aucun")
+
+# ================= 1b. What they say at the end of the call =================
+said = {}
+for q in T["survey"]:
+    answers = fb[fb.question == q["key"]].answer
+    said[q["key"]] = {"answered": len(answers), "counts": answers.value_counts().to_dict(),
+                      "yes": int((answers == q["positive"]).sum()) if q["positive"] else None}
+if len(fb):
+    st.subheader("Ce qu'ils en disent")
+    tiles = [q for q in T["survey"] if q["positive"]]
+    cols = st.columns(len(tiles))
+    for col, q in zip(cols, tiles):
+        v = said[q["key"]]
+        kpi(col, q["short"], share(v["yes"], v["answered"]) if v["answered"] else "—",
+            f"réponse « oui » · n = {v['answered']}")
+    lines = []
+    hardest = {k: c for k, c in said["hardest"]["counts"].items() if "Rien" not in k}
+    if hardest:
+        top, c = max(hardest.items(), key=lambda kv: kv[1])
+        lines.append(f"Étape jugée la plus difficile : **{top.split(' ', 1)[1]}** "
+                     f"({c} sur {said['hardest']['answered']})")
+    conf = fb[(fb.question == "confident")].merge(prog[["session_id", "level"]], on="session_id")
+    if len(conf):
+        claim = int((conf.answer == "✅ Oui").sum())
+        did = int(((conf.answer == "✅ Oui") & (conf.level >= 3)).sum())
+        lines.append(f"Se disent capables seuls : **{claim} sur {len(conf)}** · parmi eux, "
+                     f"**{did}** l'ont vraiment fait sans aide")
+    if lines:
+        st.markdown("  \n".join(lines))
 
 # ================= 2. Where people still struggle =================
 st.subheader("Où les gens bloquent")
@@ -169,6 +201,11 @@ if st.button("🧠 Générer les recommandations", type="primary"):
         "main_blocking_step_alone": STEP_NAMES.get(top_step),
         "struggle_reasons": dict(reasons.most_common(3)),
         "question_themes": dict(themes.most_common(5)),
+        "self_reported_end_of_call": {
+            q["short"]: ({"yes": said[q["key"]]["yes"], "answered": said[q["key"]]["answered"]} if q["positive"]
+                         else said[q["key"]]["counts"])
+            for q in T["survey"] if said[q["key"]]["answered"]
+        },
     }
     quotes = tu[tu.speaker == "user"].text.str.slice(0, 90).drop_duplicates().head(8).tolist()
     with st.spinner("Analyse des données…"):

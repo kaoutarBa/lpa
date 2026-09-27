@@ -44,6 +44,8 @@ Transcript:
 INSIGHTS_PROMPT = """You are a product analyst for a mobile wallet. Below are AGGREGATED results of test \
 sessions where older users learned to pay a bill: a 1st attempt with a voice coach (Salma), then a 2nd attempt \
 alone. "Struggling" on a screen = an error, a help request, "I'm lost", a question, or a 20 s hesitation.
+At the end of the call people also answered a few questions (understood, feel able to pay alone, feel safe with
+the SMS code, hardest step, will try with a real bill): compare what they say with what they did.
 
 Give AT MOST 3 recommendations in French, each one a concrete decision for the wallet product team, most \
 important first. Prefer screens where people still struggle in the 2nd attempt (the app must change there); \
@@ -73,6 +75,7 @@ def _session_data(session_id):
         turns = conn.execute(
             "SELECT mode, step, speaker, text FROM turns WHERE session_id = ? ORDER BY id", (session_id,)
         ).fetchall()
+        answers = dict(conn.execute("SELECT question, answer FROM feedback WHERE session_id = ?", (session_id,)))
     per_step = {}
     for mode, step, type in events:
         if type in ("error_reference", "error_otp", "help_request", "lost"):
@@ -84,6 +87,7 @@ def _session_data(session_id):
         "errors_and_help_per_step": per_step,
         "user_questions": sum(1 for t in turns if t[2] == "user"),
         "repeat_coached": sum(1 for e in events if e[2] == "repeat_coached"),
+        "end_of_call_answers": answers,
     }
     return metrics, turns
 
@@ -169,6 +173,17 @@ def _rules_insights(data):
             "action": "Proposer la séance guidée aux clients qui paient encore en espèces, avant leur 1er paiement.",
             "how_to_verify": "Suivre le taux de 1er vrai paiement des personnes guidées à 30 jours.",
             "confidence": "low" if pairs < 10 else conf, "n_sessions": pairs,
+        })
+    said = data.get("self_reported_end_of_call", {})
+    trust = said.get("Se sentent en sécurité avec le code SMS")
+    if trust and trust["answered"] >= 3 and trust["yes"] * 2 < trust["answered"]:
+        items.append({
+            "finding": "Le code SMS inquiète encore.",
+            "evidence": f"{trust['yes']} sur {trust['answered']} disent se sentir en sécurité avec le code SMS.",
+            "why": "La peur de l'arnaque ou de perdre de l'argent freine l'adoption.",
+            "action": "Afficher sur l'écran du code : « Ce code n'envoie pas d'argent. Ne le donnez à personne. »",
+            "how_to_verify": "La part de « oui » à cette question doit monter.",
+            "confidence": "low" if trust["answered"] < 10 else conf, "n_sessions": trust["answered"],
         })
     ab = data.get("abandons", {})
     if ab.get("count"):

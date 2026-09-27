@@ -56,6 +56,7 @@ def tts(text, cache=False):
 
 def fixed_lines():
     lines = list(T["lines"].values()) + T["fillers"] + [c["say"] for c in T["concepts"].values()]
+    lines += [q["say"] for q in T["survey"]]
     for group in ("steps", "mistakes", "cache"):
         lines += [item["say"] for item in T[group].values()]
     return lines
