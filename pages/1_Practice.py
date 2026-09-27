@@ -6,6 +6,7 @@ import time
 
 import streamlit as st
 
+import analysis
 import coach
 import db
 import voice
@@ -44,6 +45,7 @@ DEFAULTS = {
     "last_source": "",       # provider + latency of Salma's last line (shown for the demo)
     "to_say": [],            # lines to play on the next render: [(text, is_fixed)]
     "mic_n": 0,              # bumps the mic widget key so each recording is used once
+    "analyzed": False,
 }
 for key, value in DEFAULTS.items():
     ss.setdefault(key, value.copy() if isinstance(value, (list, dict)) else value)
@@ -365,6 +367,9 @@ elif step == "done":
         reset_call()
         ss.session_id = db.create_session(consent=1)
         st.rerun()
+    if not ss.analyzed:  # the screen and Salma's voice are already sent; analyse in the same run
+        ss.analyzed = True
+        analysis.analyze_session(sid)
     st.stop()
 
 # ---------- friendly error ----------

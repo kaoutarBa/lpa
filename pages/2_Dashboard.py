@@ -1,4 +1,5 @@
 """Dashboard for the wallet product manager: where users struggle, why, and what to fix."""
+import html
 import json
 from collections import Counter
 
@@ -6,6 +7,7 @@ import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 
+import analysis
 import db
 from content import UI, inject_css
 
@@ -184,7 +186,7 @@ reached_otp = ev[(ev.step == "otp") & (ev.type == "step_enter")].session_id.uniq
 otp_ev = ev[(ev.step == "otp") & ev.type.isin(ERROR_TYPES + HELP_TYPES)].groupby("session_id").size()
 otp_q = tu[(tu.step == "otp") & (tu.speaker == "user") & (tu["mode"] != "alone")].groupby("session_id").size()
 friction = otp_ev.add(otp_q, fill_value=0)
-rows = []
+rows = []  # (variant, n sessions, mean friction per session)
 for v in ["A", "B"]:
     vs = s[(s.variant == v) & (s.id.isin(reached_otp))].id
     if len(vs):
@@ -216,9 +218,38 @@ st.markdown(
 )
 st.caption(f"Projection à partir de N = {N} sessions de test ({n_sim} simulées). Ce n'est pas une mesure de marché.")
 
-# ---------- 7. AI recommendations (milestone 6) ----------
+# ---------- 7. AI recommendations ----------
 st.subheader("🧠 Recommandations")
-st.caption("Arrive au milestone 6.")
+st.caption("Chaque recommandation cite un chiffre des données. Confiance « low » sous 10 sessions.")
+if st.button("🧠 Générer les recommandations", type="primary"):
+    summary = {
+        "n_sessions": N,
+        "n_simulated": n_sim,
+        "reach_pct": {m: round((rank >= i).mean() * 100) for i, m in enumerate(db.MODES)},
+        "autonomy_pct": round(autonomy * 100),
+        "median_alone_seconds": round(times.median()) if len(times) else None,
+        "friction_by_step": {k: {"errors": int(errors.get(k, 0)), "help": int(helps.get(k, 0))} for k in STEPS},
+        "otp_friction_per_session": {v: {"n": n, "mean": round(m, 2)} for v, n, m in rows},
+        "question_themes": dict(theme_counts),
+    }
+    quotes = tu[tu.speaker == "user"].text.str.slice(0, 90).drop_duplicates().head(8).tolist()
+    with st.spinner("Analyse des données…"):
+        st.session_state.insights = analysis.cross_session_insights(summary, quotes)
+if "insights" in st.session_state:
+    items, source = st.session_state.insights
+    st.caption(f"Source : {'règles simples (aucune IA configurée)' if source == 'rules' else source}")
+    badge = {"low": "🟡 faible", "medium": "🟠 moyenne", "high": "🟢 forte"}
+    for item in items:
+        st.markdown(
+            f'<div class="card"><b>{html.escape(str(item["finding"]))}</b><br>'
+            f'📊 <b>Preuve :</b> {html.escape(str(item["evidence"]))}<br>'
+            f'❓ <b>Pourquoi :</b> {html.escape(str(item["why"]))}<br>'
+            f'🛠️ <b>Action :</b> {html.escape(str(item["action"]))}<br>'
+            f'✅ <b>Vérifier :</b> {html.escape(str(item["how_to_verify"]))}<br>'
+            f'<small>Confiance : {badge.get(item["confidence"], item["confidence"])} · '
+            f'n = {html.escape(str(item["n_sessions"]))} sessions</small></div>',
+            unsafe_allow_html=True,
+        )
 
 with st.expander("📋 Voir les données (tableau)"):
     st.dataframe(s.drop(columns=["consent"]), hide_index=True)
