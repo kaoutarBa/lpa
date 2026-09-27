@@ -258,7 +258,12 @@ export default function (component) {
 
   const base = Date.now() - data.elapsed * 1000;
   if (Math.abs(base - S.startMs) > 3000) S.startMs = base;
-  if (data.screen !== S.screen) {
+  if (data.screen !== S.screen) { // new screen: start at the top, like an app changing screens
+    if (S.screen !== null) {
+      for (const el of [document.querySelector('[data-testid="stMain"]'), document.scrollingElement]) {
+        if (el) el.scrollTo({ top: 0 });
+      }
+    }
     S.screen = data.screen;
     S.idleSince = Date.now();
   }

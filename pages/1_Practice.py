@@ -335,7 +335,7 @@ def app_header():
 
 # ---------- before the call ----------
 if ss.call in ("idle", "ended", "declined"):
-    with st.container(key="app"):
+    with st.container(key=f"app_{ss.call}"):
         app_header()
         if ss.call == "idle":
             st.markdown(f"### {UI['call_title']}")
@@ -378,18 +378,14 @@ with st.container(key="callbar"):
 if result_value(ear, "unsupported"):
     print(f"[ear] microphone / speech recognition unavailable: {result_value(ear, 'unsupported')}")
 
-# Salma speaks: play what she said since the last render (fixed lines come from the audio cache).
-audio = b"".join(voice.tts(text, cache=fixed) or b"" for text, fixed in ss.to_say)
-ss.to_say = []
-if audio:
-    st.audio(audio, format="audio/mp3", autoplay=True)
-thinking = st.empty()  # hidden filler audio while the AI answers
+voice_slot = st.empty()  # Salma's voice, filled once the screen is drawn (hidden player)
+thinking = st.empty()    # hidden filler audio while the AI answers
 highlight_css(ss.highlight)
 
 step = ss.step
 
 # ---------- the fictional payment app ----------
-with st.container(key="app"):
+with st.container(key=f"app_{step}_{ss.concept}_{ss.survey_i}"):
     app_header()
 
     if step == "consent":
@@ -563,6 +559,12 @@ with st.container(key="app"):
 
 if step in WALLET_STEPS[:-1] and st.button(UI["lost"], key="btn_lost"):
     lost()
+
+# Salma speaks: now that the new screen is on display, play what she said (fixed lines come from the cache).
+audio = b"".join(voice.tts(text, cache=fixed) or b"" for text, fixed in ss.to_say)
+ss.to_say = []
+if audio:
+    voice_slot.audio(audio, format="audio/mp3", autoplay=True)
 
 if step == "done" and not ss.analyzed:  # in the background: can take ~10 s, must not block the screen
     ss.analyzed = True

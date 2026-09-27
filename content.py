@@ -55,7 +55,9 @@ h3 { font-size: 28px !important; }
 /* Salma is heard, not seen: audio players stay invisible (they still play) */
 [data-testid="stAudio"] { position: absolute !important; width: 1px; height: 1px; overflow: hidden; opacity: 0; }
 /* The fictional payment app */
-.st-key-app { border: 2px solid #d8dee9; border-radius: 26px; padding: 14px 16px 20px 16px;
+/* One app frame per screen (key app_<screen>): the old screen is replaced as a whole, never mixed in. */
+[class*="st-key-app_"] [data-stale="true"], .st-key-btn_lost[data-stale="true"] { display: none !important; }
+[class*="st-key-app_"] { border: 2px solid #d8dee9; border-radius: 26px; padding: 14px 16px 20px 16px;
     box-shadow: 0 6px 24px rgba(11,31,68,.10); background: #ffffff; }
 .apphead { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap;
     margin-bottom: 6px; }
