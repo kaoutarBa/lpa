@@ -74,8 +74,12 @@ def stt_available():
     return bool(secret("GROQ_API_KEY"))
 
 
-def transcribe(audio_bytes):
-    """Voice → French text with Groq Whisper. Returns None on failure."""
+# Whisper sometimes "hears" these credits in silence or noise: never treat them as the user speaking.
+HALLUCINATIONS = ("sous-titr", "merci d'avoir regardé", "amara.org", "abonnez-vous", "radio-canada")
+
+
+def transcribe(audio_bytes, filename="question.webm"):
+    """Voice → French text with Groq Whisper. Returns "" if nothing real was said, None if Whisper failed."""
     try:
         client = OpenAI(
             base_url=secret("GROQ_BASE_URL", "https://api.groq.com/openai/v1"),
@@ -85,10 +89,15 @@ def transcribe(audio_bytes):
         )
         result = client.audio.transcriptions.create(
             model=secret("GROQ_STT_MODEL", "whisper-large-v3-turbo"),
-            file=("question.wav", audio_bytes),
+            file=(filename, audio_bytes),
             language=LANG,
+            # A short context helps Whisper spell the words of this conversation right.
+            prompt="Appel avec Salma pour payer une facture : référence, code SMS, facture, oui, non.",
         )
-        return (result.text or "").strip() or None
+        text = (result.text or "").strip()
+        if len(text) < 2 or any(h in text.lower() for h in HALLUCINATIONS):
+            return ""
+        return text
     except Exception as e:
         print(f"[voice] transcription failed: {type(e).__name__}: {e}")
         return None

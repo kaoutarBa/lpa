@@ -109,17 +109,18 @@ TEXTS = {
             "app_title": "💳 Mahfadati",
             # Before the call
             "call_title": "Payer une facture avec votre téléphone",
-            "call_intro": "Salma vous guide pas à pas, comme au téléphone. Montez le son 🔊",
+            "call_intro": "Salma vous guide pas à pas, comme au téléphone : vous lui parlez, elle vous répond. "
+                          "Montez le son 🔊 et autorisez le micro 🎙️.",
             "call_button": "📞 Appeler Salma",
-            "chat_placeholder": "✍️ Écrire à Salma…",
             # Call bar
             "call_header": "En appel avec Salma",
             "hangup": "📴 Raccrocher",
-            "listening": "🎙️ Salma vous écoute…",
+            "listening": "🎙️ Salma vous écoute… parlez quand vous voulez",
+            "hearing": "🗣️ Vous parlez…",
             "speaking": "🔊 Salma parle…",
             "thinking": "⏳ Salma réfléchit…",
             "paused": "🎙️ Micro en pause",
-            "nomic": "✍️ Écrivez à Salma en bas (touchez ici pour réessayer le micro)",
+            "nomic": "🎙️ Micro bloqué : autorisez-le (🔒 en haut), puis touchez ici",
             "call_ended": "📴 Appel terminé",
             "call_again": "📞 Rappeler Salma",
             # Consent (inside the call)

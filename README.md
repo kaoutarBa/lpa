@@ -16,7 +16,7 @@ Works without any key: Salma falls back to pre-written answers, text only if spe
 ## Files
 - `app.py` navigation (user view = the call only; provider view with PIN adds the dashboard)
 - `pages/1_Practice.py` the call + the fictional payment app · `pages/2_Dashboard.py` provider dashboard
-- `ear.py` + `salma_ear.js` continuous listening (Web Speech API) and the call bar
+- `ear.py` + `salma_ear.js` the call bar and listening: voice detection in the browser, words by Groq Whisper
 - `coach.py` LLM calls + fallback chain · `voice.py` gTTS + Whisper · `analysis.py` AI analysis · `progress.py` autonomy
 - `content.py` all texts (keyed by language) · `db.py` SQLite (`lpa.db`, created on start)
 - `check_ai.py` live check of your keys: `python check_ai.py` (one coach call + one analysis call)

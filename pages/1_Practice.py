@@ -3,8 +3,9 @@ consent → optional profile → assisted practice (a concept is explained, then
 → try alone (Salma stays on the line and watches) → done → a few end-of-call questions → thanks.
 
 The page only shows the fictional payment app. Salma is heard, not read: no transcript on screen.
-The user talks (continuous listening in the call bar) or types in the "Écrire à Salma" box at the bottom.
+The user just talks: the call bar listens (voice detection in the browser, Groq Whisper for the words).
 """
+import base64
 import random
 import re
 import threading
@@ -135,8 +136,15 @@ def screen_key():
     return f"{ss.call_started}:{ss.mode}:{ss.step}:{ss.concept}:{ss.survey_i}"
 
 
+filler_played = False
+
+
 def think():
-    """Never silent: play a short pre-generated filler (hidden player) while the AI works."""
+    """Never silent: play a short pre-generated filler (hidden player) while the AI works. Once per run."""
+    global filler_played
+    if filler_played:
+        return
+    filler_played = True
     filler = voice.tts(random.choice(T["fillers"]), cache=True)
     if filler:
         with thinking.container():
@@ -350,13 +358,6 @@ if ss.call in ("idle", "ended", "declined"):
     ss.to_say = []
     if audio:
         st.audio(audio, format="audio/mp3", autoplay=True)
-    typed = st.chat_input(UI["chat_placeholder"])
-    if typed:  # writing to Salma also starts the call
-        if ss.call != "active":
-            reset_call()
-            start_call()
-        thinking = st.empty()
-        handle_text(typed, "text")
     st.stop()
 
 # ---------- call bar: fixed at the top (avatar, timer, status, hang up) ----------
@@ -365,15 +366,17 @@ with st.container(key="callbar"):
     # Salma's ear: continuous listening + status ("Salma vous écoute…" / "parle…" / "réfléchit…")
     ear = salma_ear(
         listen=ss.step != "thanks", nudge=ss.step not in ("done", "thanks"), screen=screen_key(),
-        turn=f"{len(ss.subs)}-{ss.ear_ack}", elapsed=int(time.time() - ss.call_started), last_line="",
-        labels={k: UI[k] for k in ("listening", "speaking", "thinking", "paused", "nomic")} | {"title": UI["call_header"]},
+        turn=f"{len(ss.subs)}-{ss.ear_ack}", elapsed=int(time.time() - ss.call_started),
+        labels={k: UI[k] for k in ("listening", "hearing", "speaking", "thinking", "paused", "nomic")}
+        | {"title": UI["call_header"]},
+        engine="whisper" if voice.stt_available() else "browser",
     )
     if st.button(UI["hangup"], key="btn_hangup"):
         log("hangup")
         ss.call = "ended"
         st.rerun()
 if result_value(ear, "unsupported"):
-    print(f"[ear] speech recognition unavailable in this browser: {result_value(ear, 'unsupported')}")
+    print(f"[ear] microphone / speech recognition unavailable: {result_value(ear, 'unsupported')}")
 
 # Salma speaks: play what she said since the last render (fixed lines come from the audio cache).
 audio = b"".join(voice.tts(text, cache=fixed) or b"" for text, fixed in ss.to_say)
@@ -565,10 +568,21 @@ if step == "done" and not ss.analyzed:  # in the background: can take ~10 s, mus
     ss.analyzed = True
     threading.Thread(target=analysis.analyze_session, args=(ss.session_id,), daemon=True).start()
 
-# ---------- what the user said or wrote (handled last, once the screen is drawn) ----------
-typed = st.chat_input(UI["chat_placeholder"])
-if typed:
-    handle_text(typed, "text")
+# ---------- what the user said (handled last, once the screen is drawn) ----------
+recorded = result_value(ear, "voice")
+if recorded:  # one spoken phrase, recorded in the browser: Whisper turns it into text
+    ss.ear_ack += 1
+    think()
+    audio_bytes = base64.b64decode(recorded["audio"])
+    ext = "mp4" if "mp4" in recorded.get("mime", "") else "ogg" if "ogg" in recorded.get("mime", "") else "webm"
+    print(f"[ear] heard a phrase ({len(audio_bytes) // 1024} KB), transcribing…")
+    heard_text = voice.transcribe(audio_bytes, f"phrase.{ext}")
+    del audio_bytes  # never stored
+    if heard_text:
+        handle_text(heard_text, "voice")
+    if heard_text is None:  # Whisper unreachable: ask to repeat rather than stay silent
+        speak(UI["not_understood"])
+    st.rerun()  # just noise: keep listening
 heard = result_value(ear, "speech")
 if heard:
     ss.ear_ack += 1
