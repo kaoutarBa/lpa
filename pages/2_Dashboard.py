@@ -12,10 +12,11 @@ import db
 from content import UI, inject_css
 from progress import ERROR_TYPES, HELP_TYPES, LEVEL_HELP, LEVELS, STEP_NAMES, sessions_progress, share
 
-st.set_page_config(page_title="Dashboard", page_icon="📊", layout="wide")
+if not st.session_state.get("provider_view"):  # never shown in the user view (also hidden from the menu)
+    st.stop()
+st.set_page_config(page_title="Tableau de bord", page_icon="📊", layout="wide")
 inject_css()
 st.markdown("<style>.block-container { max-width: 1100px; }</style>", unsafe_allow_html=True)
-db.init_db()
 
 # Validated categorical slots (light surface) + recessive ink/grid. Aqua is below 3:1 → bars carry labels.
 BLUE, ORANGE, AQUA = "#2a78d6", "#eb6834", "#1baf7a"

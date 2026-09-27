@@ -13,10 +13,16 @@ python -m streamlit run app.py
 Works without any key: Salma falls back to pre-written answers, text only if speech is unavailable.
 
 ## Files
-- `app.py` consent · `pages/1_Practice.py` the call + wallet replica · `pages/2_Dashboard.py` metrics and recommendations
-- `coach.py` LLM calls + fallback chain · `voice.py` gTTS + Whisper · `analysis.py` AI analysis
+- `app.py` navigation (user view / PIN-protected provider view) · `home.py` consent
+- `pages/1_Practice.py` the call + wallet replica · `pages/2_Dashboard.py` progression dashboard (provider view only)
+- `ear.py` + `salma_ear.js` continuous listening (Web Speech API) and the call bar
+- `coach.py` LLM calls + fallback chain · `voice.py` gTTS + Whisper · `analysis.py` AI analysis · `progress.py` autonomy levels
 - `content.py` all texts (keyed by language) · `db.py` SQLite (`lpa.db`, created on start)
 - `check_ai.py` live check of your keys: `python check_ai.py` (one coach call + one analysis call)
+
+## Provider view
+Open the sidebar (collapsed by default), choose **Vue : Fournisseur** at the bottom and type `PROVIDER_PIN`.
+The dashboard and the simulated-sessions tool only exist in that view.
 
 ## Deploy (Streamlit Community Cloud)
 1. share.streamlit.io → **Create app** → repo `kaoutarBa/lpa`, branch, main file `app.py`.

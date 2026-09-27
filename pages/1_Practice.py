@@ -14,9 +14,7 @@ import voice
 from ear import result_value, salma_ear
 from content import T, UI, WALLET, highlight_css, inject_css, reassure
 
-st.set_page_config(page_title="Mahfadati Wallet", page_icon="💳", layout="centered")
 inject_css()
-db.init_db()
 voice.warm_up()  # background pre-generation of Salma's fixed lines (first run only)
 
 ss = st.session_state
@@ -24,7 +22,7 @@ if "session_id" not in ss:
     st.title(UI["app_title"])
     st.markdown(UI["no_session"])
     if st.button(UI["go_home"], type="primary"):
-        st.switch_page("app.py")
+        st.switch_page("home.py")
     st.stop()
 
 DEFAULTS = {
@@ -235,7 +233,7 @@ if ss.call == "ended":
         speak(T["lines"]["resume"])
         st.rerun()
     if st.button(UI["go_home"]):
-        st.switch_page("app.py")
+        st.switch_page("home.py")
     st.stop()
 
 # ---------- call bar: fixed at the top on every step (avatar, timer, status, last line, hang up) ----------
@@ -271,7 +269,7 @@ st.markdown(
 )
 if audio:
     st.audio(audio, format="audio/mp3", autoplay=True)
-if ss.last_source:
+if ss.last_source and ss.get("provider_view"):  # AI provider + latency: tester info only
     st.caption(f"🔌 {ss.last_source}")
 thinking = st.empty()  # "Salma réfléchit…" while the AI answers
 highlight_css(ss.highlight)

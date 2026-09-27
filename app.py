@@ -1,46 +1,47 @@
-"""Home: consent screen and optional profile. The lessons now happen inside the call with Salma."""
+"""Entry point: page navigation defined in code, with a user view and a PIN-protected provider view.
+
+User view (default): only the journey pages. The dashboard is not in the menu and not reachable by URL.
+Provider view: adds the dashboard (with the simulated-sessions tool). Switch at the bottom of the sidebar.
+"""
 import streamlit as st
 
 import db
-from content import UI, inject_css, reassure
+from coach import secret
 
-st.set_page_config(page_title="Learn, Practice, Adopt", page_icon="💳", layout="centered")
-inject_css()
+st.set_page_config(page_title="Mahfadati Wallet", page_icon="💳", layout="centered",
+                   initial_sidebar_state="collapsed")
 db.init_db()
+ss = st.session_state
+ss.setdefault("provider_view", False)
 
-if "stage" not in st.session_state:
-    st.session_state.stage = "consent"
+pages = [
+    st.Page("home.py", title="Accueil", icon="🏠", default=True),
+    st.Page("pages/1_Practice.py", title="Entraînement", icon="💳", url_path="practice"),
+]
+if ss.provider_view:
+    pages.append(st.Page("pages/2_Dashboard.py", title="Tableau de bord", icon="📊", url_path="dashboard"))
+page = st.navigation(pages)
 
+# Discreet view switch, pushed to the bottom of the sidebar.
+st.markdown("<style>.st-key-view_switch { order: 99; margin-top: 2rem; opacity: .75; font-size: 16px; }"
+            ".st-key-view_switch p, .st-key-view_switch label { font-size: 16px !important; }</style>",
+            unsafe_allow_html=True)
+with st.sidebar.container(key="view_switch"):
+    view = st.radio("Vue", ["Utilisateur", "Fournisseur"], index=int(ss.provider_view), horizontal=True,
+                    key="view_choice")
+    if view == "Fournisseur" and not ss.provider_view:
+        pin = st.text_input("Code PIN", type="password", key="pin_input")
+        if pin:
+            expected = str(secret("PROVIDER_PIN"))
+            if not expected:
+                st.caption("PROVIDER_PIN n'est pas défini dans les secrets.")
+            elif pin == expected:
+                ss.provider_view = True
+                st.rerun()
+            else:
+                st.caption("Code incorrect.")
+    elif view == "Utilisateur" and ss.provider_view:
+        ss.provider_view = False
+        st.rerun()
 
-def go(stage):
-    st.session_state.stage = stage
-    st.rerun()
-
-
-stage = st.session_state.stage
-
-if stage == "consent":
-    st.title(UI["consent_title"])
-    reassure(UI["reassure"])
-    st.markdown(UI["consent_body"])
-    if st.button(UI["consent_yes"], type="primary"):
-        st.session_state.session_id = db.create_session(consent=1)
-        go("profile")
-    if st.button(UI["consent_no"]):
-        go("declined")
-
-elif stage == "declined":
-    st.title(UI["consent_title"])
-    st.markdown(UI["consent_declined"])
-    if st.button(UI["go_home"]):
-        go("consent")
-
-elif stage == "profile":
-    st.title(UI["profile_title"])
-    age = st.radio(UI["age_label"], UI["age_options"], index=None)
-    edu = st.radio(UI["edu_label"], UI["edu_options"], index=None)
-    if st.button(UI["profile_save"], type="primary"):
-        db.update_session(st.session_state.session_id, age_range=age, education=edu)
-        st.switch_page("pages/1_Practice.py")
-    if st.button(UI["profile_skip"]):
-        st.switch_page("pages/1_Practice.py")
+page.run()
