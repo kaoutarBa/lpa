@@ -21,15 +21,15 @@ _DIR = pathlib.Path(__file__).parent
 CSS = """
 .salma-bar { display: flex; gap: 12px; align-items: center; color: #ffffff;
   font-family: 'Atkinson Hyperlegible', sans-serif; min-width: 0; }
-.avatar { flex: 0 0 52px; height: 52px; border-radius: 50%; background: #ffd9b3; display: flex;
-  align-items: center; justify-content: center; font-size: 32px; }
+.avatar { flex: 0 0 46px; height: 46px; border-radius: 50%; background: #ffd9b3; display: flex;
+  align-items: center; justify-content: center; font-size: 28px; }
 .avatar.speaking { animation: pulse 1.2s ease-in-out infinite; }
 @keyframes pulse { 0% { box-shadow: 0 0 0 0 rgba(255,214,0,.85); }
   70% { box-shadow: 0 0 0 12px rgba(255,214,0,0); } 100% { box-shadow: 0 0 0 0 rgba(255,214,0,0); } }
 .txt { min-width: 0; flex: 1; line-height: 1.25; }
-.title { font-size: 17px; font-weight: 700; white-space: nowrap; }
-.status { font-size: 17px; font-weight: 700; color: #ffd600; white-space: nowrap; }
-.line { font-size: 16px; opacity: .92; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.title { font-size: 16px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.status { font-size: 16px; font-weight: 700; color: #ffd600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.line { font-size: 15px; opacity: .92; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 """
 
 _JS = (_DIR / "salma_ear.js").read_text(encoding="utf-8")

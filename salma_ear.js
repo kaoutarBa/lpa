@@ -131,8 +131,8 @@ export default function (component) {
     root = document.createElement("div");
     root.className = "salma-bar";
     root.innerHTML =
-      '<div class="avatar">👩🏽</div><div class="txt"><div class="title"><span class="t1"></span> · ' +
-      '<span class="clock">00:00</span></div><div class="status"></div><div class="line"></div></div>';
+      '<div class="avatar">👩🏽</div><div class="txt"><div class="title">📞 <span class="clock">00:00</span> · ' +
+      '<span class="t1"></span></div><div class="status"></div><div class="line"></div></div>';
     parentElement.appendChild(root);
   }
   S.root = root;

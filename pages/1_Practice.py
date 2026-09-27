@@ -57,6 +57,21 @@ for key, value in DEFAULTS.items():
 ss.setdefault("variant", "A")
 
 sid = ss.session_id
+# Fixed call bar on top of the content (never scrolls away); content is pushed down below it.
+CALLBAR_CSS = """<style>
+.st-key-callbar { position: fixed; top: 0; left: 0; right: 0; z-index: 1000001; background: #0b1f44;
+  box-shadow: 0 2px 10px rgba(0,0,0,.35); padding: 10px 12px; max-height: 96px;
+  display: flex; flex-direction: row; align-items: center; gap: 10px; }
+.st-key-callbar .stElementContainer { width: auto !important; margin: 0; }
+.st-key-callbar .st-key-salma_ear { flex: 1 1 auto; min-width: 0; }
+.st-key-callbar .st-key-btn_hangup { flex: 0 0 auto; }
+.st-key-callbar .st-key-btn_hangup button { min-height: 56px; width: 92px !important; padding: 4px 6px; }
+.st-key-callbar .st-key-btn_hangup button p { font-size: 14px !important; white-space: normal; line-height: 1.15;
+  word-break: keep-all; overflow-wrap: normal; hyphens: none; }
+header[data-testid="stHeader"] { background: transparent; }
+[data-testid="stToolbar"] { display: none; }
+.block-container { padding-top: 112px !important; }
+</style>"""
 WALLET_STEPS = ["home", "biller", "reference", "confirm", "otp", "receipt"]
 SLIPS = ["error_reference", "error_otp", "help_request", "lost"]
 LOST_WORDS = re.compile(r"\b(perdue?|comprends pas|aide[rz]?)\b", re.IGNORECASE)
@@ -233,20 +248,23 @@ if ss.call == "ended":
         st.switch_page("app.py")
     st.stop()
 
-# ---------- call header: Salma's ear (continuous listening, status, timer) + hang up ----------
+# ---------- call bar: fixed at the top on every step (avatar, timer, status, last line, hang up) ----------
+st.markdown(CALLBAR_CSS, unsafe_allow_html=True)
 last_salma = next((text for who, text in reversed(ss.subs) if who == "salma"), "")
-ear = salma_ear(
-    listen=ss.mode != "done", nudge=ss.mode != "done", screen=screen_key(),
-    turn=f"{len(ss.subs)}-{ss.ear_ack}", elapsed=int(time.time() - ss.call_started), last_line=last_salma,
-    labels={k: UI[k] for k in ("listening", "speaking", "thinking", "paused", "nomic")} | {"title": UI["call_header"]},
-)
+with st.container(key="callbar"):
+    # Salma's ear: continuous listening + status ("Salma vous écoute…" / "parle…" / "réfléchit…")
+    ear = salma_ear(
+        listen=ss.mode != "done", nudge=ss.mode != "done", screen=screen_key(),
+        turn=f"{len(ss.subs)}-{ss.ear_ack}", elapsed=int(time.time() - ss.call_started), last_line=last_salma,
+        labels={k: UI[k] for k in ("listening", "speaking", "thinking", "paused", "nomic")} | {"title": UI["call_header"].replace("📞", "").strip()},
+    )
+    if st.button(UI["hangup"], key="btn_hangup"):
+        log("hangup")
+        ss.call = "ended"
+        st.rerun()
 if result_value(ear, "unsupported"):
     ss.speech_supported = False  # no Web Speech API or mic refused: fallback inputs for the rest of the session
 speech_supported = ss.get("speech_supported", True)
-if st.button(UI["hangup"], key="btn_hangup"):
-    log("hangup")
-    ss.call = "ended"
-    st.rerun()
 
 captions = "".join(
     f'<p class="{"you" if who == "you" else ""}"><b>{UI[who]} :</b> {html.escape(text)}</p>'
