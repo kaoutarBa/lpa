@@ -1,8 +1,8 @@
-"""Home: consent screen, optional profile, short lesson."""
+"""Home: consent screen and optional profile. The lessons now happen inside the call with Salma."""
 import streamlit as st
 
 import db
-from content import TEXT, darija, inject_css, reassure
+from content import UI, inject_css, reassure
 
 st.set_page_config(page_title="Learn, Practice, Adopt", page_icon="💳", layout="centered")
 inject_css()
@@ -20,37 +20,27 @@ def go(stage):
 stage = st.session_state.stage
 
 if stage == "consent":
-    st.title(TEXT["consent_title"])
-    reassure(TEXT["reassure"])
-    st.markdown(TEXT["consent_body"])
-    darija(TEXT["consent_darija"])
-    if st.button(TEXT["consent_yes"], type="primary"):
+    st.title(UI["consent_title"])
+    reassure(UI["reassure"])
+    st.markdown(UI["consent_body"])
+    if st.button(UI["consent_yes"], type="primary"):
         st.session_state.session_id = db.create_session(consent=1)
         go("profile")
-    if st.button(TEXT["consent_no"]):
+    if st.button(UI["consent_no"]):
         go("declined")
 
 elif stage == "declined":
-    st.title(TEXT["consent_title"])
-    st.markdown(TEXT["consent_declined"])
-    if st.button(TEXT["go_home"]):
+    st.title(UI["consent_title"])
+    st.markdown(UI["consent_declined"])
+    if st.button(UI["go_home"]):
         go("consent")
 
 elif stage == "profile":
-    st.title(TEXT["profile_title"])
-    darija(TEXT["profile_darija"])
-    age = st.radio(TEXT["age_label"], TEXT["age_options"], index=None)
-    edu = st.radio(TEXT["edu_label"], TEXT["edu_options"], index=None)
-    if st.button(TEXT["profile_save"], type="primary"):
+    st.title(UI["profile_title"])
+    age = st.radio(UI["age_label"], UI["age_options"], index=None)
+    edu = st.radio(UI["edu_label"], UI["edu_options"], index=None)
+    if st.button(UI["profile_save"], type="primary"):
         db.update_session(st.session_state.session_id, age_range=age, education=edu)
-        go("lesson")
-    if st.button(TEXT["profile_skip"]):
-        go("lesson")
-
-elif stage == "lesson":
-    st.title(TEXT["lesson_title"])
-    reassure(TEXT["reassure"])
-    st.markdown(TEXT["lesson_body"])
-    darija(TEXT["lesson_darija"])
-    if st.button(TEXT["lesson_start"], type="primary"):
+        st.switch_page("pages/1_Practice.py")
+    if st.button(UI["profile_skip"]):
         st.switch_page("pages/1_Practice.py")

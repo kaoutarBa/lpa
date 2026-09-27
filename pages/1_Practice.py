@@ -1,35 +1,110 @@
-"""Wallet replica: 6 screens, simulated mistakes, mode + variant, event logging."""
+"""Practice: a call with Salma (learn → coached → alone → done) on a replica of a mobile wallet."""
+import html
+import time
+
 import streamlit as st
 
 import db
-from content import ERRORS, HELP, PRACTICE as T, STEPS, TEXT, WALLET, darija, inject_css, reassure
+from content import T, UI, WALLET, highlight_css, inject_css, reassure
 
 st.set_page_config(page_title="Mahfadati Wallet", page_icon="💳", layout="centered")
 inject_css()
 db.init_db()
 
-if "session_id" not in st.session_state:
-    st.title(TEXT["practice_title"])
-    st.markdown(TEXT["no_session"])
-    if st.button(TEXT["go_home"], type="primary"):
+ss = st.session_state
+if "session_id" not in ss:
+    st.title(UI["app_title"])
+    st.markdown(UI["no_session"])
+    if st.button(UI["go_home"], type="primary"):
         st.switch_page("app.py")
     st.stop()
 
-ss = st.session_state
-sid = ss.session_id
-ss.setdefault("step", "mode")
+DEFAULTS = {
+    "call": "idle",          # idle | active | ended
+    "mode": None,            # learn | coached | alone | done
+    "step": "lesson",        # lesson | home | biller | reference | confirm | otp | receipt | done
+    "lesson": 0,
+    "subs": [],              # captions: [(speaker, text)]
+    "history": [],           # chat history sent to the LLM
+    "highlight": None,       # element id Salma points at
+    "error": None,           # error message key to show
+    "errors": {},            # (mode, step) -> number of mistakes
+    "last_action": "",       # what the user just did (for the screen share)
+    "repeat_offered": False,
+    "repeat_declined": False,
+    "call_started": None,
+    "alone_started": None,
+    "alone_secs": None,
+    "alone_slips": 0,        # errors + help + lost in the current alone run
+}
+for key, value in DEFAULTS.items():
+    ss.setdefault(key, value.copy() if isinstance(value, (list, dict)) else value)
 ss.setdefault("variant", "A")
-ss.setdefault("error", None)      # step name whose error message to show
-ss.setdefault("show_help", False)
 
-ORDER = ["home", "biller", "reference", "confirm", "otp", "receipt"]
+sid = ss.session_id
+WALLET_STEPS = ["home", "biller", "reference", "confirm", "otp", "receipt"]
+SLIPS = ["error_reference", "error_otp", "help_request", "lost"]
+
+
+# ---------- helpers ----------
+def log(type, detail=""):
+    db.log_event(sid, ss.mode, ss.step, type, detail)
+    if ss.mode == "alone" and type in SLIPS:
+        ss.alone_slips += 1
+
+
+def speak(say, highlight=None, provider="fixed", latency_ms=0, input_type="fixed"):
+    """Salma says something: caption, highlight, turn log."""
+    ss.subs.append(("salma", say))
+    ss.history.append({"role": "assistant", "content": say})
+    ss.highlight = highlight
+    db.log_turn(sid, ss.mode, ss.step, "coach", say, input_type, provider, latency_ms, highlight)
+
+
+def set_mode(mode):
+    ss.mode = mode
+    with db.connect() as conn:
+        reached = conn.execute("SELECT mode_reached FROM sessions WHERE id = ?", (sid,)).fetchone()[0]
+    if reached not in db.MODES or db.MODES.index(mode) > db.MODES.index(reached):
+        db.update_session(sid, mode_reached=mode)
 
 
 def go(step):
     ss.step = step
     ss.error = None
-    ss.show_help = False
-    db.log_event(sid, step, "step_enter")
+    ss.highlight = None
+    ss.last_action = ""
+    log("step_enter")
+    if ss.mode == "coached":
+        speak(**T["steps"][step])
+    st.rerun()
+
+
+def answer(event):
+    """Salma answers a question or reacts to an event. Replaced by the AI coach in milestone 3."""
+    speak(**T["cache"][ss.step])
+
+
+def slip_in_alone():
+    """In alone mode, after 2+ errors or help requests, Salma offers one more coached round."""
+    if ss.mode == "alone" and not ss.repeat_offered and ss.alone_slips >= 2:
+        ss.repeat_offered = True
+        speak(T["lines"]["repeat_offer"])
+
+
+def mistake(kind, typed):
+    """Wrong reference or wrong code."""
+    log(f"error_{kind}", typed[:40])
+    key = (ss.mode, ss.step)
+    ss.errors[key] = ss.errors.get(key, 0) + 1
+    ss.error = f"error_{kind}"
+    ss.last_action = f"a tapé « {typed[:40]} », ce qui est faux"
+    if ss.mode == "coached":
+        if ss.errors[key] == 1:
+            speak(**T["mistakes"][kind])
+        else:
+            answer(f"L'utilisateur s'est encore trompé ({ss.errors[key]} erreurs sur cet écran).")
+    slip_in_alone()
     st.rerun()
 
 
@@ -37,156 +112,231 @@ def money(x):
     return f"{x:,.2f} MAD".replace(",", " ").replace(".", ",")
 
 
-# ---------- Sidebar: tester-only variant toggle ----------
+def call_minutes():
+    secs = int(time.time() - ss.call_started) if ss.call_started else 0
+    return f"{secs // 60:02d}:{secs % 60:02d}"
+
+
+def reset_call():
+    for key in DEFAULTS:
+        ss.pop(key, None)
+
+
+# ---------- sidebar: tester-only variant toggle ----------
 with st.sidebar:
-    st.markdown(f"**{T['sidebar_admin']}**")
-    variant = "B" if st.toggle(T["variant_label"], value=ss.variant == "B") else "A"
+    st.markdown(f"**{UI['sidebar_admin']}**")
+    variant = "B" if st.toggle(UI["variant_label"], value=ss.variant == "B") else "A"
     if variant != ss.variant:
         ss.variant = variant
         db.update_session(sid, variant=variant)
 
-step = ss.step
-st.title(TEXT["practice_title"])
-reassure(TEXT["reassure"])
-
-# ---------- Mode choice (before the wallet) ----------
-if step == "mode":
-    st.subheader(T["mode_title"])
-    darija(T["mode_darija"])
-    if st.button(T["mode_coached"], type="primary"):
-        ss.mode = "coached"
-        db.update_session(sid, mode="coached", variant=ss.variant)
-        go("home")
-    if st.button(T["mode_alone"]):
-        ss.mode = "alone"
-        db.update_session(sid, mode="alone", variant=ss.variant)
-        go("home")
+# ---------- call not started / ended ----------
+if ss.call == "idle":
+    st.title(UI["call_title"])
+    reassure(UI["reassure"])
+    st.markdown(UI["call_intro"])
+    if st.button(UI["call_button"], type="primary", key="btn_call"):
+        ss.call = "active"
+        ss.call_started = time.time()
+        db.update_session(sid, variant=ss.variant)
+        set_mode("learn")
+        ss.step = "lesson"
+        log("step_enter", "lesson_1")
+        speak(T["lines"]["greeting"])
+        speak(T["lessons"][0]["say"], "lesson_card")
+        st.rerun()
     st.stop()
 
-# ---------- Coach instruction (coached mode only; the AI coach arrives in milestone 3) ----------
-if ss.mode == "coached":
-    fr, dj = STEPS[step]
-    st.markdown(f'<div class="coach">👩‍🏫 {fr}<br><i>🗣️ {dj}</i></div>', unsafe_allow_html=True)
-    st.write("")
+if ss.call == "ended":
+    st.title(UI["call_ended"])
+    if st.button(UI["call_again"], type="primary"):
+        ss.call = "active"
+        speak(T["lines"]["resume"])
+        st.rerun()
+    if st.button(UI["go_home"]):
+        st.switch_page("app.py")
+    st.stop()
 
-# ---------- Screens ----------
-if step == "home":
+# ---------- call header + Salma panel (captions) ----------
+st.markdown(f"**{UI['call_header']} · {call_minutes()}**")
+if st.button(UI["hangup"], key="btn_hangup"):
+    log("hangup")
+    ss.call = "ended"
+    st.rerun()
+
+captions = "".join(
+    f'<p class="{"you" if who == "you" else ""}"><b>{UI[who]} :</b> {html.escape(text)}</p>'
+    for who, text in ss.subs[-3:]
+)
+st.markdown(
+    f'<div class="callpanel"><div class="avatar">👩🏽</div><div class="subs">{captions}</div></div>',
+    unsafe_allow_html=True,
+)
+highlight_css(ss.highlight)
+
+reassure(UI["reassure"])
+if ss.mode == "alone":
+    st.caption(UI["alone_badge"])
+
+step = ss.step
+
+# ---------- Learn: short spoken lessons ----------
+if ss.mode == "learn":
+    lesson = T["lessons"][ss.lesson]
     st.markdown(
-        f'<div class="card">{T["balance_label"]}<br><span class="balance">{money(WALLET["balance"])}</span></div>',
+        f'<div class="lesson" id="lesson_card"><h3>{lesson["title"]}</h3><p>{lesson["say"]}</p></div>',
         unsafe_allow_html=True,
     )
-    if st.button(T["pay_bill"], type="primary"):
+    last = ss.lesson == len(T["lessons"]) - 1
+    if st.button(UI["start_practice"] if last else UI["next"], type="primary", key="btn_next"):
+        if last:
+            set_mode("coached")
+            go("home")
+        ss.lesson += 1
+        log("step_enter", f"lesson_{ss.lesson + 1}")
+        speak(T["lessons"][ss.lesson]["say"], "lesson_card")
+        st.rerun()
+
+# ---------- Wallet screens ----------
+elif step == "home":
+    st.subheader(UI["app_title"])
+    st.markdown(
+        f'<div class="card" id="balance">{UI["balance_label"]}<br>'
+        f'<span class="balance">{money(WALLET["balance"])}</span></div>',
+        unsafe_allow_html=True,
+    )
+    if st.button(UI["pay_bill"], type="primary", key="btn_pay"):
         go("biller")
 
 elif step == "biller":
-    st.subheader(T["biller_title"])
-    if st.button(T["biller_electricity"], type="primary"):
+    st.subheader(UI["biller_title"])
+    if st.button(UI["biller_electricity"], type="primary", key="btn_elec"):
         go("reference")
-    if st.button(T["biller_water"]):
-        st.info(T["water_info"])
+    if st.button(UI["biller_water"], key="btn_water"):
+        ss.last_action = "a appuyé sur Eau au lieu d'Électricité"
+        st.info(UI["water_info"])
 
 elif step == "reference":
-    st.subheader(T["reference_title"])
+    st.subheader(UI["reference_title"])
     st.markdown(
-        f'<div class="bill"><b>{T["bill_header"]}</b><br><br>'
-        f'{T["bill_ref_label"]} : <span class="ref">{WALLET["reference"]}</span><br>'
-        f'{T["bill_amount_label"]} : <b>{money(WALLET["amount"])}</b></div>',
+        f'<div class="bill" id="bill_card"><b>{UI["bill_header"]}</b>'
+        f'<div class="top"><span>{UI["bill_date_label"]} : {WALLET["bill_date"]}</span>'
+        f'<span>{UI["bill_ref_label"]} : <span class="ref" id="bill_ref">{WALLET["reference"]}</span></span></div>'
+        f'<br>{UI["bill_amount_label"]} : <b>{money(WALLET["amount"])}</b></div>',
         unsafe_allow_html=True,
     )
-    st.write("")
     with st.form("reference_form"):
-        typed = st.text_input(T["reference_label"], placeholder="EL-....-....")
-        if st.form_submit_button(T["next"], type="primary"):
+        typed = st.text_input(UI["reference_label"], placeholder="EL-....-....", key="input_ref")
+        if st.form_submit_button(UI["continue"], type="primary"):
             # Forgiving check: ignore case, spaces and dashes.
-            clean = typed.upper().replace(" ", "").replace("-", "")
-            if clean == WALLET["reference"].replace("-", ""):
+            if typed.upper().replace(" ", "").replace("-", "") == WALLET["reference"].replace("-", ""):
                 go("confirm")
-            else:
-                db.log_event(sid, step, "error_reference", typed[:40])
-                ss.error = step
+            mistake("reference", typed)
 
 elif step == "confirm":
-    st.subheader(T["confirm_title"])
+    st.subheader(UI["confirm_title"])
     st.markdown(
-        f'<div class="card">'
-        f'🏢 {T["confirm_biller"]} : <b>{WALLET["biller"]} — {WALLET["bill_type"]}</b><br>'
-        f'🔢 {T["bill_ref_label"]} : <b>{WALLET["reference"]}</b><br>'
-        f'💰 {T["bill_amount_label"]} : <b>{money(WALLET["amount"])}</b></div>',
+        f'<div class="card" id="summary">'
+        f'🏢 {UI["confirm_biller"]} : <b>{WALLET["biller"]} — {WALLET["bill_type"]}</b><br>'
+        f'🔢 {UI["bill_ref_label"]} : <b>{WALLET["reference"]}</b><br>'
+        f'💰 {UI["bill_amount_label"]} : <b>{money(WALLET["amount"])}</b></div>',
         unsafe_allow_html=True,
     )
-    if st.button(T["confirm_button"], type="primary"):
+    if st.button(UI["confirm_button"], type="primary", key="btn_confirm"):
         go("otp")
 
 elif step == "otp":
-    st.subheader(T["otp_title"])
+    st.subheader(UI["otp_title"])
     st.markdown(
-        f'<div class="sms"><b>{T["sms_from"]}</b><br>{T["sms_text"]}</div>', unsafe_allow_html=True
+        f'<div class="sms" id="sms"><b>{UI["sms_from"]}</b><br>{UI["sms_text"]}</div>', unsafe_allow_html=True
     )
     with st.form("otp_form"):
-        typed = st.text_input(T[f"otp_label_{ss.variant}"], max_chars=6)
-        if st.form_submit_button(T["validate"], type="primary"):
-            if typed.strip() == WALLET["otp"]:
-                db.log_event(sid, step, "complete")
-                mistakes = db.count_events(sid, ["error_reference", "error_otp", "help_request", "lost"])
-                db.update_session(
-                    sid,
-                    ended_at=db.now(),
-                    completed=1,
-                    completed_alone=int(ss.mode == "alone" and mistakes == 0),
-                )
+        typed = st.text_input(UI[f"otp_label_{ss.variant}"], max_chars=6, key="input_otp")
+        if st.form_submit_button(UI["validate"], type="primary"):
+            if typed.strip() != WALLET["otp"]:
+                mistake("otp", typed)
+            log("complete")
+            if ss.mode == "coached":
                 go("receipt")
-            else:
-                db.log_event(sid, step, "error_otp")
-                ss.error = step
+            # Alone run finished: this is the "Adopt" moment.
+            ss.alone_secs = int(time.time() - (ss.alone_started or time.time()))
+            db.update_session(sid, ended_at=db.now(), completed=1, completed_alone=int(ss.alone_slips == 0))
+            set_mode("done")
+            ss.step = "done"
+            ss.highlight = None
+            log("step_enter")
+            speak(T["lines"]["done"])
+            st.rerun()
 
 elif step == "receipt":
-    st.success(T["receipt_title"])
+    st.success(UI["receipt_title"])
     st.markdown(
-        f'<div class="card">'
+        f'<div class="card" id="receipt">'
         f'🏢 {WALLET["biller"]} — {WALLET["bill_type"]}<br>'
-        f'🔢 {T["bill_ref_label"]} : <b>{WALLET["reference"]}</b><br>'
-        f'💰 {T["bill_amount_label"]} : <b>{money(WALLET["amount"])}</b><br>'
-        f'{T["new_balance"]} : <b>{money(WALLET["balance"] - WALLET["amount"])}</b></div>',
+        f'🔢 {UI["bill_ref_label"]} : <b>{WALLET["reference"]}</b><br>'
+        f'💰 {UI["bill_amount_label"]} : <b>{money(WALLET["amount"])}</b><br>'
+        f'{UI["new_balance"]} : <b>{money(WALLET["balance"] - WALLET["amount"])}</b></div>',
         unsafe_allow_html=True,
     )
-    st.markdown(f"### {T['receipt_value']}")
-    darija(T["receipt_value_darija"])
-    if st.button(T["restart"], type="primary"):
-        # A new practice run is a new anonymous session.
+    if st.button(UI["try_alone"], type="primary", key="btn_alone"):
+        set_mode("alone")
+        ss.alone_started = time.time()
+        ss.alone_slips = 0
+        ss.repeat_offered = False
+        ss.repeat_declined = False
+        speak(T["lines"]["alone_intro"])
+        go("home")
+
+elif step == "done":
+    st.title(UI["done_title"])
+    mins, secs = divmod(ss.alone_secs or 0, 60)
+    st.markdown(
+        f'<div class="card" id="receipt">{UI["done_time"]}<br><span class="big-value">{mins} min {secs:02d} s</span>'
+        f'<br>🏢 {WALLET["biller"]} — {money(WALLET["amount"])} ✅</div>',
+        unsafe_allow_html=True,
+    )
+    st.markdown(f"### {UI['done_value']}")
+    if st.button(UI["restart"], type="primary", key="btn_restart"):
+        reset_call()
         ss.session_id = db.create_session(consent=1)
-        ss.step = "mode"
         st.rerun()
     st.stop()
 
-# ---------- Friendly error after a mistake ----------
-if ss.error == step:
-    fr, dj = ERRORS[step]
-    st.warning(fr)
-    darija(dj)
-    st.info(HELP[step])  # replaced by the AI coach's auto-explanation in milestone 3
+# ---------- friendly error ----------
+if ss.error:
+    st.warning(UI[ss.error])
 
-if ss.show_help:
-    st.info(HELP[step])
+# ---------- repeat offer (alone, after 2+ slips) ----------
+if ss.mode == "alone" and ss.repeat_offered and not ss.repeat_declined:
+    st.info(T["lines"]["repeat_offer"])
+    if st.button(UI["repeat_yes"], key="btn_repeat"):
+        log("repeat_coached")
+        set_mode("coached")
+        ss.repeat_offered = False
+        go("home")
+    if st.button(UI["repeat_no"], key="btn_repeat_no"):
+        ss.repeat_declined = True
+        st.rerun()
 
-# ---------- Back / I'm lost / help (every screen) ----------
+# ---------- I'm lost / help / back ----------
 st.divider()
-col_back, col_lost = st.columns(2)
-with col_back:
-    if st.button(T["back"]):
-        db.log_event(sid, step, "back")
-        if step == "home":
-            st.switch_page("app.py")
-        ss.step = ORDER[ORDER.index(step) - 1]
-        ss.error = None
-        ss.show_help = False
-        st.rerun()
-with col_lost:
-    if st.button(T["lost"]):
-        db.log_event(sid, step, "lost")
-        ss.show_help = True
-        st.rerun()
+if st.button(UI["lost"], key="btn_lost"):
+    log("lost")
+    ss.last_action = "a appuyé sur « Je suis perdu(e) »"
+    answer("L'utilisateur est perdu sur cet écran.")
+    slip_in_alone()
+    st.rerun()
 
-if ss.mode == "alone" and st.button(T["help"]):
-    db.log_event(sid, step, "help_request")
-    ss.show_help = True
+if ss.mode == "alone" and st.button(UI["help"], key="btn_help"):
+    log("help_request")
+    ss.last_action = "a appuyé sur « Aide »"
+    answer("L'utilisateur demande de l'aide sur cet écran.")
+    slip_in_alone()
+    st.rerun()
+
+if step in WALLET_STEPS[1:-1] and st.button(UI["back"], key="btn_back"):
+    log("back")
+    ss.step = WALLET_STEPS[WALLET_STEPS.index(step) - 1]
+    ss.error = None
+    ss.highlight = None
     st.rerun()
