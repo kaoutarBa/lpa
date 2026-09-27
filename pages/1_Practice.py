@@ -1,7 +1,7 @@
 """Practice: a call with Salma (learn → coached → alone → done) on a replica of a mobile wallet."""
 import html
-import math
 import random
+import re
 import threading
 import time
 
@@ -11,6 +11,7 @@ import analysis
 import coach
 import db
 import voice
+from ear import result_value, salma_ear
 from content import T, UI, WALLET, highlight_css, inject_css, reassure
 
 st.set_page_config(page_title="Mahfadati Wallet", page_icon="💳", layout="centered")
@@ -47,6 +48,9 @@ DEFAULTS = {
     "to_say": [],            # lines to play on the next render: [(text, is_fixed)]
     "mic_n": 0,              # bumps the mic widget key so each recording is used once
     "analyzed": False,
+    "nudged": [],            # screens where Salma already relaunched after 20 s of silence
+    "ear_ack": 0,            # bumped each time Python handles something the ear sent
+    "alone_nudges": 0,       # idle nudges in the current alone run
 }
 for key, value in DEFAULTS.items():
     ss.setdefault(key, value.copy() if isinstance(value, (list, dict)) else value)
@@ -55,6 +59,7 @@ ss.setdefault("variant", "A")
 sid = ss.session_id
 WALLET_STEPS = ["home", "biller", "reference", "confirm", "otp", "receipt"]
 SLIPS = ["error_reference", "error_otp", "help_request", "lost"]
+LOST_WORDS = re.compile(r"\b(perdue?|comprends pas|aide[rz]?)\b", re.IGNORECASE)
 
 
 # ---------- helpers ----------
@@ -130,6 +135,37 @@ def handle_question(text, input_type):
     st.rerun()
 
 
+def lost(input_type=None, text=None):
+    """« Je suis perdu(e) » — the button, or a spoken phrase with « perdu », « aide », « comprends pas »."""
+    if text:
+        ss.subs.append(("you", text))
+        db.log_turn(sid, ss.mode, ss.step, "user", text, input_type)
+    log("lost", input_type or "button")
+    ss.last_action = f"a dit « {text} »" if text else "a appuyé sur « Je suis perdu(e) »"
+    answer("La personne dit qu'elle est perdue sur cet écran.")
+    slip_in_alone()
+    st.rerun()
+
+
+def nudge():
+    """20 s without action or speech on this screen: Salma relaunches once, with contextual help."""
+    screen = screen_key()
+    if screen in ss.nudged:
+        st.rerun()
+    ss.nudged.append(screen)
+    log("idle_nudge")
+    if ss.mode == "alone":
+        ss.alone_nudges += 1
+    ss.last_action = "n'a rien fait ni rien dit depuis 20 secondes"
+    answer("La personne hésite depuis 20 secondes sans rien faire. Relancez-la gentiment en une phrase "
+           "et montrez-lui l'élément utile sur cet écran.")
+    st.rerun()
+
+
+def screen_key():
+    return f"{sid[:8]}:{ss.mode}:{ss.step}:{ss.lesson}"
+
+
 def slip_in_alone():
     """In alone mode, after 2+ errors or help requests, Salma offers one more coached round."""
     if ss.mode == "alone" and not ss.repeat_offered and ss.alone_slips >= 2:
@@ -197,21 +233,16 @@ if ss.call == "ended":
         st.switch_page("app.py")
     st.stop()
 
-# ---------- call header (ticking duration) + hang up ----------
-elapsed = int(time.time() - ss.call_started)
-header_html = (
-    f"""<link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:wght@700&display=swap" rel="stylesheet">
-<div style="font-family:'Atkinson Hyperlegible',sans-serif;background:#0b3d91;color:#fff;border-radius:12px;
- padding:10px 16px;font-size:20px;font-weight:700;display:flex;justify-content:space-between;">
- <span>{UI['call_header']}</span><span id="t"></span></div>
-<script>let s={elapsed};const f=()=>{{document.getElementById('t').textContent=
- String(Math.floor(s/60)).padStart(2,'0')+':'+String(s%60).padStart(2,'0');s++;}};f();setInterval(f,1000);</script>"""
+# ---------- call header: Salma's ear (continuous listening, status, timer) + hang up ----------
+last_salma = next((text for who, text in reversed(ss.subs) if who == "salma"), "")
+ear = salma_ear(
+    listen=ss.mode != "done", nudge=ss.mode != "done", screen=screen_key(),
+    turn=f"{len(ss.subs)}-{ss.ear_ack}", elapsed=int(time.time() - ss.call_started), last_line=last_salma,
+    labels={k: UI[k] for k in ("listening", "speaking", "thinking", "paused", "nomic")} | {"title": UI["call_header"]},
 )
-if hasattr(st, "iframe"):  # Streamlit >= 1.50
-    st.iframe(header_html, height=58)
-else:
-    import streamlit.components.v1 as components
-    components.html(header_html, height=58)
+if result_value(ear, "unsupported"):
+    ss.speech_supported = False  # no Web Speech API or mic refused: fallback inputs for the rest of the session
+speech_supported = ss.get("speech_supported", True)
 if st.button(UI["hangup"], key="btn_hangup"):
     log("hangup")
     ss.call = "ended"
@@ -222,17 +253,12 @@ captions = "".join(
     for who, text in ss.subs[-3:]
 )
 # Salma speaks: play what she said since the last render (fixed lines come from the audio cache).
-audio, speaking = b"", ""
-if ss.to_say:
-    texts = [text for text, _ in ss.to_say]
-    for text, fixed in ss.to_say:
-        audio += voice.tts(text, cache=fixed) or b""
-    ss.to_say = []
-    # Soft pulse on the avatar for roughly as long as she talks (~14 characters per second).
-    pulses = math.ceil(sum(len(t) for t in texts) / 14 / 1.2)
-    speaking = f' speaking" style="animation-iteration-count:{pulses}'
+audio = b""
+for text, fixed in ss.to_say:
+    audio += voice.tts(text, cache=fixed) or b""
+ss.to_say = []
 st.markdown(
-    f'<div class="callpanel"><div class="avatar{speaking}">👩🏽</div><div class="subs">{captions}</div></div>',
+    f'<div class="callpanel"><div class="subs">{captions}</div></div>',
     unsafe_allow_html=True,
 )
 if audio:
@@ -328,7 +354,7 @@ elif step == "otp":
                 go("receipt")
             # Alone run finished: this is the "Adopt" moment.
             ss.alone_secs = int(time.time() - (ss.alone_started or time.time()))
-            db.update_session(sid, ended_at=db.now(), completed=1, completed_alone=int(ss.alone_slips == 0))
+            db.update_session(sid, ended_at=db.now(), completed=1, completed_alone=int(ss.alone_slips == 0 and ss.alone_nudges == 0))
             set_mode("done")
             ss.step = "done"
             ss.highlight = None
@@ -350,6 +376,7 @@ elif step == "receipt":
         set_mode("alone")
         ss.alone_started = time.time()
         ss.alone_slips = 0
+        ss.alone_nudges = 0
         ss.repeat_offered = False
         ss.repeat_declined = False
         speak(T["lines"]["alone_intro"])
@@ -389,34 +416,42 @@ if ss.mode == "alone" and ss.repeat_offered and not ss.repeat_declined:
         ss.repeat_declined = True
         st.rerun()
 
-# ---------- talk to Salma: tap-to-talk mic, text box as fallback ----------
+# ---------- other ways to talk to Salma (continuous listening is the main one) ----------
+def fallback_inputs():
+    if voice.stt_available():
+        recording = st.audio_input(UI["mic_label"], key=f"mic_{ss.mic_n}")
+        if recording:
+            ss.mic_n += 1  # fresh widget next time, so this recording is used once
+            think()
+            heard = voice.transcribe(recording.getvalue())
+            del recording  # never stored
+            if heard:
+                handle_voice(heard[:300])
+            speak(UI["not_understood"])
+            st.rerun()
+    with st.form("ask_form", clear_on_submit=True):
+        question = st.text_input(UI["text_label"], key="input_question")
+        sent = st.form_submit_button(UI["send"])
+    if sent and question.strip():
+        handle_question(question.strip()[:300], "text")
+
+
+def handle_voice(text):
+    if LOST_WORDS.search(text):
+        lost("voice", text)
+    handle_question(text, "voice")
+
+
 st.divider()
-if voice.stt_available():
-    recording = st.audio_input(UI["mic_label"], key=f"mic_{ss.mic_n}")
-    if recording:
-        ss.mic_n += 1  # fresh widget next time, so this recording is used once
-        think()
-        heard = voice.transcribe(recording.getvalue())
-        del recording  # never stored
-        if heard:
-            handle_question(heard[:300], "voice")
-        speak(UI["not_understood"])
-        st.rerun()
+if speech_supported:
+    with st.expander(UI["fallback_title"]):
+        fallback_inputs()
 else:
-    st.caption(UI["mic_unavailable"])
-with st.form("ask_form", clear_on_submit=True):
-    question = st.text_input(UI["text_label"], key="input_question")
-    sent = st.form_submit_button(UI["send"])
-if sent and question.strip():
-    handle_question(question.strip()[:300], "text")
+    fallback_inputs()  # no Web Speech API (or mic refused): show the fallback directly
 
 # ---------- I'm lost / help / back ----------
 if st.button(UI["lost"], key="btn_lost"):
-    log("lost")
-    ss.last_action = "a appuyé sur « Je suis perdu(e) »"
-    answer("La personne dit qu'elle est perdue sur cet écran.")
-    slip_in_alone()
-    st.rerun()
+    lost()
 
 if ss.mode == "alone" and st.button(UI["help"], key="btn_help"):
     log("help_request")
@@ -431,3 +466,12 @@ if step in WALLET_STEPS[1:-1] and st.button(UI["back"], key="btn_back"):
     ss.error = None
     ss.highlight = None
     st.rerun()
+
+# ---------- what the ear heard (handled last, once the screen is drawn) ----------
+heard = result_value(ear, "speech")
+if heard:
+    ss.ear_ack += 1
+    handle_voice(str(heard)[:300])
+if result_value(ear, "idle"):
+    ss.ear_ack += 1
+    nudge()
