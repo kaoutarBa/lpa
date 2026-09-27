@@ -3,7 +3,7 @@
 - 🌐 **Live app:** https://lpa-digitalpayment.streamlit.app/
 - 🎬 **Demo video (Loom):** https://www.loom.com/share/402d31dce8094bb1ba74e003bd7dfcc9
 - 📎 **Presentation (Google Drive):** https://drive.google.com/file/d/1lsQj6gRqKqwQcYXNOPLvv_ZwvlPbI0jm/view?usp=drive_link
-- 📝 **Article:** [docs/medium_article.md](docs/medium_article.md)
+- 📖 **Project journey (the story behind the app):** [docs/project_journey.md](docs/project_journey.md)
 
 A practice mobile wallet with a voice coach, Salma, who helps older people learn to pay a bill.
 Everything happens inside one call: consent → optional questions → assisted mode (Salma explains a concept,
