@@ -104,70 +104,81 @@ SIM_QUESTIONS = {
 
 
 def generate_simulated_sessions(n=10, seed=None):
-    """Insert n realistic fake sessions (always is_simulated = 1)."""
+    """Insert n realistic fake sessions (always is_simulated = 1): varied autonomy levels and a real
+    progression between the guided attempt and the alone attempt."""
     import json
     import random
     from datetime import timedelta
 
     rnd = random.Random(seed)
+    wallet = ["home", "biller", "reference", "confirm", "otp"]
     with connect() as conn:
-        for i in range(n):
+        for _ in range(n):
             sid = str(uuid.uuid4())
+            ease = rnd.random()  # 0 = very unsure, 1 = at ease
             t = datetime.now(timezone.utc) - timedelta(hours=rnd.uniform(1, 48))
             events, turns, themes, struggles = [], [], {}, []
 
-            def ev(mode, step, type, detail="", secs=(3, 12)):
+            def ev(mode, step, type, detail="", secs=(4, 14)):
                 nonlocal t
-                t += timedelta(seconds=rnd.uniform(*secs))
+                t += timedelta(seconds=rnd.uniform(*secs) * (1.6 - ease))
                 events.append((sid, t.isoformat(timespec="seconds"), mode, step, type, detail))
 
             def ask(mode, theme):
                 step, questions = SIM_QUESTIONS[theme]
                 if mode == "alone":  # in alone mode every question is a help request
-                    ev(mode, step, "help_request", "text")
+                    ev(mode, step, "help_request", "voice")
                 question = rnd.choice(questions)
                 turns.append((sid, t.isoformat(timespec="seconds"), mode, step, "user", question,
                               rnd.choice(["voice", "text"]), None, None, None))
                 themes[theme] = question
 
-            for k in range(3):
-                ev("learn", "lesson", "step_enter", f"lesson_{k + 1}", (8, 20))
-            reached = "learn"
-            otp_friction = 0.45
-            if rnd.random() < 0.95:
-                reached = "coached"
-                for step in ["home", "biller", "reference", "confirm", "otp", "receipt"]:
-                    ev("coached", step, "step_enter")
-                    if step == "reference" and rnd.random() < 0.35:
-                        ev("coached", step, "error_reference", "EL-4471")
-                        ask("coached", "where_reference") if rnd.random() < 0.5 else None
-                    if step == "confirm" and rnd.random() < 0.3:
-                        ask("coached", rnd.choice(["fear_losing_money", "fees"]))
-                    if step == "otp" and rnd.random() < otp_friction:
-                        ev("coached", step, "error_otp", "48")
-                        ask("coached", rnd.choice(["otp_meaning", "code_sharing"]))
-                ev("coached", "otp", "complete")
-            slips, alone_ok = 0, False
-            if reached == "coached" and rnd.random() < 0.85:
-                reached = "alone"
-                ev("alone", "home", "step_enter")
-                for step in ["biller", "reference", "confirm", "otp"]:
-                    ev("alone", step, "step_enter", secs=(5, 22))
-                    if step == "otp" and rnd.random() < otp_friction:
-                        ev("alone", step, "error_otp", "48")
+            def attempt(mode, scale):
+                """One run through the wallet. `scale` < 1 in the alone attempt: people improve."""
+                slips = 0
+                for step in wallet:
+                    ev(mode, step, "step_enter")
+                    unsure = (1 - ease) * scale
+                    if rnd.random() < 0.35 * unsure:
+                        ev(mode, step, "idle_nudge", secs=(18, 22))
+                        slips += 1
+                    if step == "reference" and rnd.random() < 0.6 * unsure:
+                        ev(mode, step, "error_reference", "EL-4471")
+                        slips += 1
+                        if rnd.random() < 0.5:
+                            ask(mode, "where_reference")
+                    if step == "confirm" and rnd.random() < 0.5 * unsure:
+                        ask(mode, rnd.choice(["fear_losing_money", "fees"]))
+                        slips += 1
+                    if step == "otp" and rnd.random() < 0.9 * unsure:
+                        ev(mode, step, "error_otp", "48")
                         slips += 1
                         if rnd.random() < 0.7:
-                            ask("alone", "otp_meaning")
-                            slips += 1
-                    if step == "reference" and rnd.random() < 0.15:
-                        ev("alone", step, "lost")
+                            ask(mode, rnd.choice(["otp_meaning", "code_sharing"]))
+                    if step == "reference" and mode == "alone" and rnd.random() < 0.25 * unsure:
+                        ev(mode, step, "lost", "voice")
                         slips += 1
-                if rnd.random() < 0.85:
-                    ev("alone", "otp", "complete")
-                    reached, alone_ok = "done", slips == 0
-                    ev("done", "done", "step_enter", secs=(1, 2))
-                if slips:
-                    struggles.append({"step": "otp", "reason": "Hésitation sur le rôle du code SMS."})
+                    if rnd.random() < (0.02 if mode == "coached" else 0.12) * unsure:
+                        return False, slips  # gave up on this screen
+                ev(mode, "otp", "complete")
+                return True, slips
+
+            for k in range(3):
+                ev("learn", "lesson", "step_enter", f"lesson_{k + 1}", (8, 20))
+            reached, alone_ok = "learn", False
+            if rnd.random() < 0.95:
+                reached = "coached"
+                ok, _ = attempt("coached", 1.0)
+                if ok:
+                    ev("coached", "receipt", "step_enter", secs=(2, 4))
+                    if rnd.random() < 0.88:
+                        reached = "alone"
+                        ok, slips = attempt("alone", 0.45)
+                        if ok:
+                            reached, alone_ok = "done", slips == 0
+                            ev("done", "done", "step_enter", secs=(1, 2))
+                        if slips:
+                            struggles.append({"step": "otp", "reason": "Hésitation sur le rôle du code SMS."})
             conn.execute(
                 "INSERT INTO sessions (id, started_at, ended_at, mode_reached, completed, completed_alone,"
                 " consent, age_range, education, is_simulated) VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, 1)",

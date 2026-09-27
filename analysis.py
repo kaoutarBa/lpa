@@ -19,8 +19,8 @@ import db
 from coach import chat, clean_values, parse_json
 
 THEMES = ["otp_meaning", "fear_losing_money", "where_reference", "code_sharing", "fees", "navigation", "other"]
-STEP_NAMES = {"home": "accueil", "biller": "choix du facturier", "reference": "référence",
-              "confirm": "confirmation", "otp": "code SMS"}
+STEP_NAMES = {"home": "Accueil", "biller": "Facturier", "reference": "Référence",
+              "confirm": "Confirmation", "otp": "Code SMS"}
 
 SESSION_PROMPT = """You analyse ONE anonymous practice session of an older person learning to pay a bill \
 in a practice mobile wallet, guided by a voice coach (Salma). Modes: learn (lessons), coached (guided), \
@@ -42,11 +42,14 @@ Transcript:
 {transcript}"""
 
 INSIGHTS_PROMPT = """You are a product analyst for a mobile wallet. Below are AGGREGATED results of practice \
-sessions where older users learned to pay a bill, plus a few short anonymous quotes.
+sessions where older users learned to pay a bill with a voice coach: a 1st attempt guided by the coach, then a \
+2nd attempt alone. Indicators: autonomy levels (4 autonomous, 3 almost alone, 2 helped once or twice, \
+1 accompanied, not finished + abandon step), progression between the two attempts (help, errors, idle nudges \
+= the coach relaunched after 20 s of hesitation, time), and difficulty per screen. Plus a few short anonymous quotes.
 
-Write 3 to 5 findings in French. Hard rules:
+Write 3 to 5 findings in French, focused on progression and on the screens that block people. Hard rules:
 - Every item's "evidence" MUST cite at least one number that appears in the data below. No number, no recommendation.
-- Do not invent numbers. Do not extrapolate beyond the data.
+- Do not invent numbers. Do not extrapolate beyond the data. Stay factual and positive without exaggerating.
 - "confidence" is "low" if n_sessions < 10, otherwise low/medium/high depending on sample size and effect size.
 - "n_sessions" is the number of sessions behind the finding.
 
@@ -144,22 +147,46 @@ def _rules_insights(data):
     n = data["n_sessions"]
     conf = "low" if n < 10 else "medium"
     items = []
-    steps = data["friction_by_step"]
-    if steps:
-        step, v = max(steps.items(), key=lambda kv: kv[1]["errors"] + kv[1]["help"])
+    p = data.get("progression_attempt1_guided_vs_attempt2_alone", {})
+    pairs = p.get("n_sessions_with_both_attempts", 0)
+    if pairs >= 3:
+        (hg, ha), (ng, na) = p["help_per_person"], p["idle_nudges_per_person"]
         items.append({
-            "finding": f"L'écran « {STEP_NAMES.get(step, step)} » concentre le plus de difficultés.",
-            "evidence": f"{v['errors']} erreurs et {v['help']} demandes d'aide sur {n} sessions.",
-            "why": "C'est l'étape où les utilisateurs hésitent le plus.",
+            "finding": "Les testeurs ont besoin de moins d'aide au 2e essai.",
+            "evidence": f"Aides par personne : {hg} au 1er essai guidé, {ha} au 2e essai seul ; "
+                        f"relances : {ng} puis {na} (n = {pairs}).",
+            "why": "Un premier passage guidé suffit pour que la plupart retiennent les étapes.",
+            "action": "Proposer systématiquement un essai guidé avant le premier vrai paiement.",
+            "how_to_verify": "Suivre aides et relances par personne sur les prochaines sessions réelles.",
+            "confidence": "low" if pairs < 10 else conf, "n_sessions": pairs,
+        })
+    steps = data.get("difficulty_by_step", {})
+    if steps:
+        step, v = max(steps.items(), key=lambda kv: sum(kv[1].values()))
+        items.append({
+            "finding": f"L'écran « {STEP_NAMES.get(step, step)} » bloque le plus.",
+            "evidence": f"{v['errors']} erreurs, {v['help']} aides et {v['nudges']} relances sur {n} sessions.",
+            "why": "C'est l'étape où les utilisateurs hésitent ou se trompent le plus.",
             "action": "Simplifier le texte de cet écran et y ajouter une explication courte.",
-            "how_to_verify": "Comparer erreurs + aides par session avant/après sur le tableau de bord.",
+            "how_to_verify": "Comparer erreurs, aides et relances par session avant et après le changement.",
             "confidence": conf, "n_sessions": n,
         })
+        hesit, hv = max(steps.items(), key=lambda kv: kv[1]["nudges"])
+        if hv["nudges"] and hesit != step:
+            items.append({
+                "finding": f"On hésite longtemps sur l'écran « {STEP_NAMES.get(hesit, hesit)} ».",
+                "evidence": f"{hv['nudges']} relances après 20 s d'inaction sur cet écran ({n} sessions).",
+                "why": "La prochaine action n'est pas évidente.",
+                "action": "Mettre en avant le bouton ou le champ attendu sur cet écran.",
+                "how_to_verify": "Le nombre de relances sur cet écran doit baisser.",
+                "confidence": conf, "n_sessions": n,
+            })
     items.append({
-        "finding": "Part des testeurs qui paient seuls après une séance.",
-        "evidence": f"{data['autonomy_pct']} % des {n} sessions : essai seul réussi sans erreur ni aide.",
-        "why": "Mesure directe de l'adoption après accompagnement.",
-        "action": "Proposer la séance guidée aux nouveaux clients seniors.",
+        "finding": "Une partie des testeurs paie seule ou presque seule.",
+        "evidence": f"{data.get('alone_or_almost_alone', 0)} sur {n} sessions atteignent le niveau 3 ou 4 ; "
+                    f"{data.get('paid', 0)} sur {n} ont réussi à payer.",
+        "why": "Mesure directe de l'autonomie après l'accompagnement.",
+        "action": "Proposer la séance guidée aux nouveaux clients qui paient encore en espèces.",
         "how_to_verify": "Suivre le taux de paiement réel à 30 jours des testeurs.",
         "confidence": conf, "n_sessions": n,
     })
