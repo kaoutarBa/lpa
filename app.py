@@ -1,12 +1,11 @@
-"""Entry point: page navigation defined in code, with a user view and a PIN-protected provider view.
+"""Entry point: page navigation defined in code, with a user view and a provider view.
 
-User view (default): only the call with Salma, no menu. The dashboard is not reachable, not even by URL.
-Provider view (PIN): adds the dashboard to the menu. Switch at the bottom of the sidebar.
+User view (default): only the call with Salma, no menu, no dashboard.
+Provider view: adds the dashboard to the menu. Switch at the bottom of the sidebar (open to everyone).
 """
 import streamlit as st
 
 import db
-from coach import secret
 
 st.set_page_config(page_title="Mahfadati Wallet", page_icon="💳", layout="centered",
                    initial_sidebar_state="collapsed")
@@ -26,19 +25,8 @@ st.markdown("<style>.st-key-view_switch { order: 99; margin-top: 2rem; opacity: 
 with st.sidebar.container(key="view_switch"):
     view = st.radio("Vue", ["Utilisateur", "Fournisseur"], index=int(ss.provider_view), horizontal=True,
                     key="view_choice")
-    if view == "Fournisseur" and not ss.provider_view:
-        pin = st.text_input("Code PIN", type="password", key="pin_input")
-        if pin:
-            expected = str(secret("PROVIDER_PIN"))
-            if not expected:
-                st.caption("PROVIDER_PIN n'est pas défini dans les secrets.")
-            elif pin == expected:
-                ss.provider_view = True
-                st.rerun()
-            else:
-                st.caption("Code incorrect.")
-    elif view == "Utilisateur" and ss.provider_view:
-        ss.provider_view = False
+    if (view == "Fournisseur") != ss.provider_view:
+        ss.provider_view = view == "Fournisseur"
         st.rerun()
 
 page.run()

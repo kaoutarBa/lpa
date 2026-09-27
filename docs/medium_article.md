@@ -135,7 +135,7 @@ Finally, the AI writes at most **three recommendations**, and we enforce two rul
 - **No number, no recommendation.** Every item's evidence must cite a number that exists in the data. If it doesn't, the item is dropped.
 - **Honesty with small samples.** Under 10 sessions we write "3 of 5", not "60%", and confidence is forced to "low". Under 3 sessions, the dashboard simply says there isn't enough data yet.
 
-The dashboard is hidden from users: there's no menu entry and no URL. Providers switch to it with a PIN.
+The dashboard is hidden from users: there's no menu entry and no URL. Providers open it from a discreet switch in the sidebar.
 
 ---
 
@@ -169,5 +169,7 @@ The second most useful thing was turning those moments into **evidence** a produ
 Financial inclusion doesn't start with a new app. It starts with a first payment that didn't feel scary.
 
 ---
+
+**Try it:** [lpa-digitalpayment.streamlit.app](https://lpa-digitalpayment.streamlit.app/) · **Watch the demo:** [Loom video](https://www.loom.com/share/402d31dce8094bb1ba74e003bd7dfcc9) · **Slides:** [Google Drive](https://drive.google.com/file/d/1lsQj6gRqKqwQcYXNOPLvv_ZwvlPbI0jm/view?usp=drive_link)
 
 *Built at the GOMYCODE "Come Build with AI" hackathon, September 2026. Stack: Python, Streamlit, SQLite, Groq (gpt-oss-20b, Whisper), NVIDIA Build (Mistral Nemotron, Nemotron Super), gTTS. Coded with the help of Claude Code.*
