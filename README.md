@@ -10,6 +10,14 @@ Everything happens inside one call: consent → optional questions → assisted 
 then you apply it in the app) → try alone (Salma stays on the line) → done.
 Sessions are anonymous; a provider dashboard shows the wallet provider where people struggle and what to fix.
 
+## Screenshots
+
+| Assisted mode: a concept, then practice | The wallet screen, Salma pointing at the reference | Provider dashboard |
+|---|---|---|
+| <img src="docs/screenshots/concept.png" width="260" alt="Concept card: the bill reference, with the button highlighted"> | <img src="docs/screenshots/reference.png" width="260" alt="Reference screen with the bill and Salma's yellow highlight"> | <img src="docs/screenshots/dashboard.png" width="260" alt="Dashboard: key figures, what people say, where they struggle, recommendations"> |
+
+The call bar stays on top during the whole journey: call duration and Salma's status (listening, speaking, thinking), plus a *Hang up* button.
+
 ## Run locally
 ```bash
 python -m pip install -r requirements.txt
