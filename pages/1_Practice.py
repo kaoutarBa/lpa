@@ -2,6 +2,7 @@
 import html
 import math
 import random
+import threading
 import time
 
 import streamlit as st
@@ -367,9 +368,9 @@ elif step == "done":
         reset_call()
         ss.session_id = db.create_session(consent=1)
         st.rerun()
-    if not ss.analyzed:  # the screen and Salma's voice are already sent; analyse in the same run
+    if not ss.analyzed:  # in the background: the analysis can take ~10 s and must not block the screen
         ss.analyzed = True
-        analysis.analyze_session(sid)
+        threading.Thread(target=analysis.analyze_session, args=(sid,), daemon=True).start()
     st.stop()
 
 # ---------- friendly error ----------
