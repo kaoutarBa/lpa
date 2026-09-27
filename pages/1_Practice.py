@@ -1,16 +1,20 @@
 """Practice: a call with Salma (learn → coached → alone → done) on a replica of a mobile wallet."""
 import html
+import math
+import random
 import time
 
 import streamlit as st
 
 import coach
 import db
+import voice
 from content import T, UI, WALLET, highlight_css, inject_css, reassure
 
 st.set_page_config(page_title="Mahfadati Wallet", page_icon="💳", layout="centered")
 inject_css()
 db.init_db()
+voice.warm_up()  # background pre-generation of Salma's fixed lines (first run only)
 
 ss = st.session_state
 if "session_id" not in ss:
@@ -38,6 +42,8 @@ DEFAULTS = {
     "alone_secs": None,
     "alone_slips": 0,        # errors + help + lost in the current alone run
     "last_source": "",       # provider + latency of Salma's last line (shown for the demo)
+    "to_say": [],            # lines to play on the next render: [(text, is_fixed)]
+    "mic_n": 0,              # bumps the mic widget key so each recording is used once
 }
 for key, value in DEFAULTS.items():
     ss.setdefault(key, value.copy() if isinstance(value, (list, dict)) else value)
@@ -58,6 +64,7 @@ def log(type, detail=""):
 def speak(say, highlight=None, provider="fixed", latency_ms=0, input_type="fixed"):
     """Salma says something: caption, highlight, turn log."""
     ss.subs.append(("salma", say))
+    ss.to_say.append((say, provider == "fixed" or provider == "cache"))
     ss.history.append({"role": "assistant", "content": say})
     ss.highlight = highlight
     ss.last_source = provider if provider in ("fixed", "cache") else f"{provider} · {latency_ms} ms"
@@ -89,7 +96,7 @@ def answer(message, is_question=False):
     if ss.mode == "learn":
         lesson = T["lessons"][ss.lesson]
         screen, extra = "lesson", f"Leçon affichée : « {lesson['title']} » — {lesson['say']}"
-    thinking.markdown(f'<p class="thinking">⏳ {UI["thinking"]}</p>', unsafe_allow_html=True)
+    think()
     res = coach.ask(
         message, screen, ss.mode, ss.history, ss.last_action,
         ss.errors.get((ss.mode, ss.step), 0), extra, is_question,
@@ -97,6 +104,15 @@ def answer(message, is_question=False):
     if is_question:
         ss.history.append({"role": "user", "content": message})
     speak(res["say"], res["highlight"], res["provider"], res["latency_ms"], input_type="ai")
+
+
+def think():
+    """Never silent: show "Salma réfléchit…" and play a short pre-generated filler while the AI works."""
+    with thinking.container():
+        st.markdown(f'<p class="thinking">⏳ {UI["thinking"]}</p>', unsafe_allow_html=True)
+        filler = voice.tts(random.choice(T["fillers"]), cache=True)
+        if filler:
+            st.audio(filler, format="audio/mp3", autoplay=True)
 
 
 def handle_question(text, input_type):
@@ -136,11 +152,6 @@ def mistake(kind, typed):
 
 def money(x):
     return f"{x:,.2f} MAD".replace(",", " ").replace(".", ",")
-
-
-def call_minutes():
-    secs = int(time.time() - ss.call_started) if ss.call_started else 0
-    return f"{secs // 60:02d}:{secs % 60:02d}"
 
 
 def reset_call():
@@ -183,8 +194,21 @@ if ss.call == "ended":
         st.switch_page("app.py")
     st.stop()
 
-# ---------- call header + Salma panel (captions) ----------
-st.markdown(f"**{UI['call_header']} · {call_minutes()}**")
+# ---------- call header (ticking duration) + hang up ----------
+elapsed = int(time.time() - ss.call_started)
+header_html = (
+    f"""<link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:wght@700&display=swap" rel="stylesheet">
+<div style="font-family:'Atkinson Hyperlegible',sans-serif;background:#0b3d91;color:#fff;border-radius:12px;
+ padding:10px 16px;font-size:20px;font-weight:700;display:flex;justify-content:space-between;">
+ <span>{UI['call_header']}</span><span id="t"></span></div>
+<script>let s={elapsed};const f=()=>{{document.getElementById('t').textContent=
+ String(Math.floor(s/60)).padStart(2,'0')+':'+String(s%60).padStart(2,'0');s++;}};f();setInterval(f,1000);</script>"""
+)
+if hasattr(st, "iframe"):  # Streamlit >= 1.50
+    st.iframe(header_html, height=58)
+else:
+    import streamlit.components.v1 as components
+    components.html(header_html, height=58)
 if st.button(UI["hangup"], key="btn_hangup"):
     log("hangup")
     ss.call = "ended"
@@ -194,10 +218,22 @@ captions = "".join(
     f'<p class="{"you" if who == "you" else ""}"><b>{UI[who]} :</b> {html.escape(text)}</p>'
     for who, text in ss.subs[-3:]
 )
+# Salma speaks: play what she said since the last render (fixed lines come from the audio cache).
+audio, speaking = b"", ""
+if ss.to_say:
+    texts = [text for text, _ in ss.to_say]
+    for text, fixed in ss.to_say:
+        audio += voice.tts(text, cache=fixed) or b""
+    ss.to_say = []
+    # Soft pulse on the avatar for roughly as long as she talks (~14 characters per second).
+    pulses = math.ceil(sum(len(t) for t in texts) / 14 / 1.2)
+    speaking = f' speaking" style="animation-iteration-count:{pulses}'
 st.markdown(
-    f'<div class="callpanel"><div class="avatar">👩🏽</div><div class="subs">{captions}</div></div>',
+    f'<div class="callpanel"><div class="avatar{speaking}">👩🏽</div><div class="subs">{captions}</div></div>',
     unsafe_allow_html=True,
 )
+if audio:
+    st.audio(audio, format="audio/mp3", autoplay=True)
 if ss.last_source:
     st.caption(f"🔌 {ss.last_source}")
 thinking = st.empty()  # "Salma réfléchit…" while the AI answers
@@ -347,8 +383,21 @@ if ss.mode == "alone" and ss.repeat_offered and not ss.repeat_declined:
         ss.repeat_declined = True
         st.rerun()
 
-# ---------- talk to Salma ----------
+# ---------- talk to Salma: tap-to-talk mic, text box as fallback ----------
 st.divider()
+if voice.stt_available():
+    recording = st.audio_input(UI["mic_label"], key=f"mic_{ss.mic_n}")
+    if recording:
+        ss.mic_n += 1  # fresh widget next time, so this recording is used once
+        think()
+        heard = voice.transcribe(recording.getvalue())
+        del recording  # never stored
+        if heard:
+            handle_question(heard[:300], "voice")
+        speak(UI["not_understood"])
+        st.rerun()
+else:
+    st.caption(UI["mic_unavailable"])
 with st.form("ask_form", clear_on_submit=True):
     question = st.text_input(UI["text_label"], key="input_question")
     sent = st.form_submit_button(UI["send"])

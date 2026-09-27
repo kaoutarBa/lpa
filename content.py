@@ -18,14 +18,14 @@ h2 { font-size: 30px !important; }
 h3 { font-size: 28px !important; }
 .stApp { background: #ffffff; color: #111111; }
 .block-container { max-width: 560px; padding: 1rem 1rem 4rem 1rem; }
-.stButton > button, .stFormSubmitButton > button {
-    width: 100%; min-height: 72px; font-size: 24px !important; font-weight: 700;
+.stElementContainer:has(.stButton), .stElementContainer:has(.stFormSubmitButton), .stButton, .stFormSubmitButton,
+.stButton button, .stFormSubmitButton button { width: 100% !important; }
+.st-key-btn_hangup, .st-key-btn_hangup .stButton, .st-key-btn_hangup button { width: auto !important; }
+.stButton button, .stFormSubmitButton button {
+    min-height: 72px; font-size: 24px !important; font-weight: 700;
     border-radius: 14px; border: 2px solid #0b3d91;
 }
-.stButton > button p, .stFormSubmitButton > button p { font-size: 24px !important; }
-.stButton > button[kind="primary"], .stFormSubmitButton > button[kind="primary"] {
-    background: #0b3d91; color: #ffffff;
-}
+.stButton button p, .stFormSubmitButton button p { font-size: 24px !important; }
 .st-key-btn_hangup button { background: #c62828 !important; color: #fff !important;
     border-color: #c62828 !important; min-height: 52px; }
 .st-key-btn_hangup button p { font-size: 20px !important; }
@@ -49,7 +49,7 @@ h3 { font-size: 28px !important; }
                    70% { box-shadow: 0 0 0 16px rgba(255,214,0,0); }
                    100% { box-shadow: 0 0 0 0 rgba(255,214,0,0); } }
 .subs { flex: 1; font-size: 20px; line-height: 1.35; }
-.subs p { margin: 0 0 6px 0; font-size: 20px !important; color: #fff; }
+.subs p { margin: 0 0 6px 0; font-size: 19px !important; color: #fff; }
 .subs .you { color: #b3d4ff; }
 .thinking { color: #ffd600; font-weight: 700; }
 /* Salma pointing at an element (see highlight_css) */
